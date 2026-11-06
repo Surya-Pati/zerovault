@@ -1,0 +1,17 @@
+﻿# ZeroVault — Known Limitations & V1 Scope Boundaries
+
+This document consolidates the known discrepancies between early aspirational design documentation and the actual V1 production/MVP implementation of ZeroVault. Each architectural decision reflects deliberate scope choices prioritizing zero-day cryptographic security, operational simplicity, and evaluation efficiency.
+
+## Consolidated Scope & Limitations
+
+| Component | Documented As | Actual Implementation | Rationale |
+| :--- | :--- | :--- | :--- |
+| **Storage** | Decentralized IPFS / Filecoin pinning for encrypted vulnerability payloads | Local encrypted filesystem storage behind an IPFS-compatible interface | V1 uses local encrypted filesystem storage behind an IPFS-compatible interface, designed for a drop-in swap to pinning services post-MVP. |
+| **Rate Limiting** | Distributed Redis-backed rate limiting | In-memory sliding-window rate limiting via `express-rate-limit` | V1 implements in-memory rate limiting to minimize external infrastructure dependencies during MVP phase, with Redis drop-in planned for distributed multi-instance deployment. |
+| **Authentication** | Dual SIWE and email/password authentication | SIWE (Sign-In with Ethereum, EIP-4361) cryptographic wallet authentication only | V1 relies strictly on SIWE-only wallet authentication to preserve pseudonymity and eliminate credential/password database attack surfaces in MVP scope. |
+| **Sessions** | Rotating refresh tokens with short-lived JWT access tokens | Single stateless HttpOnly secure 24-hour session JWT cookie | V1 employs a single 24-hour HttpOnly session cookie to avoid refresh token rotation state overhead while maintaining strict XSS-resistant session security. |
+| **Dispute Resolution** | 48-hour dispute window with multi-sig/arbitrator mediation | Atomic single-transaction key revelation and payout verification (`revealAndClaim`) with no dispute window or third-party arbitrator | V1 uses atomic single-transaction key revelation and payout verification (`revealAndClaim`), eliminating subjective dispute mediation and counterparty escrow lockup risks. |
+| **Timeout Durations** | Hardcoded 7-day commit and 14-day reclaim timeout constants | Parameterized constructor arguments (`COMMIT_TIMEOUT`, `RECLAIM_TIMEOUT`) deployed with dual configurations (Production 7d/14d, Demo 5m/10m) | V1 implements parameterized constructor timeouts allowing dual testnet/demo deployments (5m/10m for evaluation alongside production 7d/14d) without hardcoding. |
+| **Network** | Ethereum mainnet deployment | Ethereum Sepolia testnet and local Hardhat node only | V1 targets Ethereum Sepolia testnet and local Hardhat environments for risk-free zero-day escrow validation prior to mainnet capital deployment. |
+| **Governance** | Multi-sig / DAO governance for administrative functions | Single administrative key with OpenZeppelin `AccessControl` (`DEFAULT_ADMIN_ROLE` and `ADMIN_ROLE`) | V1 uses a single administrative key for KYC whitelisting and emergency pause to simplify testnet operations ahead of multi-sig (Gnosis Safe) governance transition. |
+| **Supported Assets & Scope** | Multi-token payments (ERC-20/stablecoins), dynamic automated exploit sandboxing/execution, and native mobile apps | Native ETH payments only, static cryptographic proof verification only, and responsive desktop web app only | V1 explicitly restricts scope to native ETH settlement, cryptographic proof verification without sandboxed code execution, and responsive web clients to ensure core escrow security. |

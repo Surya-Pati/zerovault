@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  # Optional local PostgreSQL if not using Supabase cloud
+  postgres:
+    image: postgres:16-alpine
+    container_name: zerovault-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: zerovault_password
+      POSTGRES_DB: zerovault
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    profiles: ["local-db"]
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: zerovault-backend
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DATABASE_URL=${DATABASE_URL}
+      - DIRECT_URL=${DIRECT_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - CSRF_SECRET=${CSRF_SECRET}
+      - ZEROVAULT_CONTRACT_ADDRESS=${ZEROVAULT_CONTRACT_ADDRESS}
+      - RPC_URL=${RPC_URL}
+      - ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+    volumes:
+      - backend-storage:/app/storage
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_ZEROVAULT_ADDRESS: ${ZEROVAULT_CONTRACT_ADDRESS:-0xd99501e8a7CE41fFb1DdEF4ca288B57Cf9966091}
+        NEXT_PUBLIC_RPC_URL: ${RPC_URL:-https://eth-sepolia.g.alchemy.com/v2/alch_6Vg9aD0dEisSAvxZ4lUfn}
+        NEXT_PUBLIC_CHAIN_ID: ${CHAIN_ID:-11155111}
+        NEXT_PUBLIC_API_URL: http://localhost:3001
+    container_name: zerovault-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  backend-storage:

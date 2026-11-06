@@ -1,0 +1,102 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  RESEARCHER
+  BUYER
+  ADMIN
+}
+
+enum ListingStatus {
+  CREATED
+  COMMITTED
+  BOUNTY_LOCKED
+  SETTLED
+  EXPIRED
+  REFUNDED
+}
+
+model User {
+  id               String   @id @default(uuid())
+  wallet_address   String?  @unique
+  email            String?  @unique
+  profile_name     String?  @unique
+  password_hash    String?
+  role             Role
+  verified_buyer   Boolean  @default(false)
+  created_at       DateTime @default(now())
+
+  listings         VulnerabilityListing[]
+  escrows          EscrowTransaction[]
+  audit_logs       AuditLog[]
+}
+
+model VulnerabilityListing {
+  id                     String        @id @default(uuid())
+  seller_id              String
+  title                  String
+  category               String
+  severity               String
+  merkle_root            String        
+  price_wei              String        
+  status                 ListingStatus @default(CREATED)
+  encrypted_payload_uri  String?       
+  key_hash               String?
+  vendor_address         String?
+  claims                 Json?
+  created_at             DateTime      @default(now())
+
+  seller                 User          @relation(fields: [seller_id], references: [id])
+  escrow                 EscrowTransaction?
+  proofs                 DisclosureProof[]
+}
+
+model EscrowTransaction {
+  id                String        @id @default(uuid())
+  listing_id        String        @unique
+  buyer_id          String
+  contract_address  String
+  tx_hash_fund      String?
+  tx_hash_settle    String?
+  status            ListingStatus @default(CREATED)
+  bounty_locked_at  DateTime?
+  decryption_key    String?
+
+  listing           VulnerabilityListing @relation(fields: [listing_id], references: [id])
+  buyer             User                 @relation(fields: [buyer_id], references: [id])
+}
+
+model DisclosureProof {
+  id              String   @id @default(uuid())
+  listing_id      String
+  leaf_index      Int
+  revealed_value  String
+  merkle_proof    Json     
+  verified        Boolean  @default(false)
+
+  listing         VulnerabilityListing @relation(fields: [listing_id], references: [id])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  admin_id    String
+  action      String
+  target_id   String?
+  details     Json?
+  created_at  DateTime @default(now())
+
+  admin       User     @relation(fields: [admin_id], references: [id])
+}
+
+model SyncState {
+  id                  String   @id @default("singleton")
+  last_processed_block Int      @default(0)
+  updated_at          DateTime @updatedAt
+}

@@ -1,0 +1,247 @@
+{
+	"info": {
+		"_postman_id": "7b8f9e01-3d2a-4a8b-9e4f-123456789abc",
+		"name": "ZeroVault API Integration Test Suite",
+		"description": "Comprehensive automated integration test collection for the ZeroVault Express.js API gateway, testing authentication, CSRF, listings CRUD, and security boundaries.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. System Health Check",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 OK\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test(\"Response returns status ok\", function () {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.status).to.eql(\"ok\");",
+							"});",
+							"pm.test(\"Response time is under 150ms\", function () {",
+							"    pm.expect(pm.response.responseTime).to.be.below(150);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/health",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "health"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "2. Security - CSRF Token Issuance",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 OK\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test(\"Contains valid csrfToken\", function () {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData).to.have.property('csrfToken');",
+							"    pm.expect(jsonData.csrfToken.length).to.be.above(10);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/auth/csrf-token",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "auth", "csrf-token"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "3. Authentication - EIP-4361 Nonce Generation",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 OK\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test(\"Returns 32-byte hexadecimal nonce\", function () {",
+							"    var nonce = pm.response.text();",
+							"    pm.expect(nonce.length).to.be.above(10);",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/auth/nonce?address=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "auth", "nonce"],
+					"query": [
+						{
+							"key": "address",
+							"value": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "4. Listings - Retrieve Public Feed",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 OK\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test(\"Response body contains listings array\", function () {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData).to.have.property('listings');",
+							"    pm.expect(Array.isArray(jsonData.listings)).to.be.true;",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/listings",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "listings"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "5. Security - Reject Unauthenticated Listing Creation",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 401 Unauthorized\", function () {",
+							"    pm.response.to.have.status(401);",
+							"});",
+							"pm.test(\"Returns unauthorized error message\", function () {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData).to.have.property('error');",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"title\": \"Unauthorized Exploit Submission\",\n    \"category\": \"RCE\",\n    \"severity\": \"CRITICAL\"\n}"
+				},
+				"url": {
+					"raw": "{{baseUrl}}/api/listings",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "listings"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "6. Security - Reject Non-Admin Access to KYC Console",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 401 Unauthorized\", function () {",
+							"    pm.response.to.have.status(401);",
+							"});",
+							"pm.test(\"Guards admin route from unauthenticated callers\", function () {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData).to.have.property('error');",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/auth/buyers",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "auth", "buyers"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "7. Error Handling - Invalid Listing Query Returns 404",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 404 Not Found\", function () {",
+							"    pm.response.to.have.status(404);",
+							"});",
+							"pm.test(\"Error message indicates listing not found\", function () {",
+							"    var jsonData = pm.response.json();",
+							"    pm.expect(jsonData.error).to.include(\"not found\");",
+							"});"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/api/listings/00000000-0000-0000-0000-000000000000",
+					"host": ["{{baseUrl}}"],
+					"path": ["api", "listings", "00000000-0000-0000-0000-000000000000"]
+				}
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:3001",
+			"type": "string"
+		}
+	]
+}
