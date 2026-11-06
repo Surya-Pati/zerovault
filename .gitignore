@@ -1,4 +1,6 @@
+# ==========================================
 # Environment variables and secrets
+# ==========================================
 .env
 .env.*
 !.env.example
@@ -7,37 +9,78 @@
 .env.development.local
 .env.test.local
 .env.production.local
+*.pem
+*.key
 
+# ==========================================
 # Storage & Uploaded Payloads
+# ==========================================
 backend/storage/public/*
 backend/storage/private/*
 !backend/storage/public/.gitkeep
 !backend/storage/private/.gitkeep
+storage/public/*
+storage/private/*
 
-# Temporary and Cache files
+# ==========================================
+# Temporary, Scratch & Journal Files
+# ==========================================
 __pycache__/
 *.pyc
+*.pyo
 ~$*.docx
+*.docx
 test-results/
 graphify-out/
+.playwright-cli/
+frontend/.playwright-cli/
 
+# Root scratch / one-off test scripts
+render_diagram_*.js
+render_screenshot_*.js
+section_data_*.py
+build_full_journal.py
+journal_builder.py
+decrypt.js
+test-revert.js
+frontend/check-*.js
+frontend/check_*.js
+frontend/take_screenshots.js
+frontend/test-*.js
+frontend/test-*.ts
+frontend/test-*.mjs
+
+# ==========================================
 # Dependencies
+# ==========================================
 node_modules/
+backend/node_modules/
+frontend/node_modules/
+contracts/node_modules/
 .pnp
 .pnp.js
 
+# ==========================================
 # Build outputs and distribution
+# ==========================================
 dist/
+backend/dist/
 build/
 out/
 .next/
+frontend/.next/
+frontend/out/
 
+# ==========================================
 # Testing and coverage
+# ==========================================
 coverage/
 *.lcov
 .nyc_output/
 
+# ==========================================
 # Cache, temp, and runtime
+# ==========================================
 .cache/
 .turbo/
 .eslintcache
@@ -46,13 +89,21 @@ coverage/
 .yarn/
 .tempmediaStorage/
 
+# ==========================================
 # Smart contract compilation & artifacts
+# ==========================================
 artifacts/
+contracts/artifacts/
 cache/
+contracts/cache/
 typechain/
+contracts/typechain/
 typechain-types/
+contracts/typechain-types/
 
+# ==========================================
 # Logs
+# ==========================================
 logs/
 *.log
 npm-debug.log*
@@ -60,7 +111,9 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# ==========================================
 # OS and IDE files
+# ==========================================
 .DS_Store
 Thumbs.db
 .vscode/
