@@ -28,15 +28,17 @@ app.use(helmet({
 }));
 
 // ─── CORS — restrict to known origins ───────────────────────────────
-const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',')
-  : ['http://localhost:3000'];
+  : ['http://localhost:3000', 'http://127.0.0.1:3000']
+).map(o => o.trim().replace(/\/+$/, ''));
 
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, curl, server-to-server)
     if (!origin) return callback(null, true);
-    if (ALLOWED_ORIGINS.includes(origin)) {
+    const normalizedOrigin = origin.replace(/\/+$/, '');
+    if (ALLOWED_ORIGINS.includes(normalizedOrigin)) {
       return callback(null, true);
     }
     return callback(new Error('CORS: Origin not allowed'));

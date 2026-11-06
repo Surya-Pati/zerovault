@@ -82,7 +82,7 @@ async function main() {
   const frontendEnvContent = `NEXT_PUBLIC_ZEROVAULT_ADDRESS="${contractAddress}"
 NEXT_PUBLIC_RPC_URL="${sepoliaRpc}"
 NEXT_PUBLIC_CHAIN_ID=11155111
-NEXT_PUBLIC_API_URL=http://localhost:3001
+NEXT_PUBLIC_API_URL=http://localhost:3001/api
 `;
   fs.writeFileSync(frontendEnvPath, frontendEnvContent, "utf8");
   console.log("  -> Generated frontend/.env.local");

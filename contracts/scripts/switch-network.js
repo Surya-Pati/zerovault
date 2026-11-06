@@ -55,7 +55,7 @@ const frontendEnvPath = path.resolve(__dirname, '../../frontend/.env.local');
 const frontendEnvContent = `NEXT_PUBLIC_ZEROVAULT_ADDRESS="${config.contractAddress}"
 NEXT_PUBLIC_RPC_URL="${config.rpcUrl}"
 NEXT_PUBLIC_CHAIN_ID=${config.chainId}
-NEXT_PUBLIC_API_URL=http://localhost:3001
+NEXT_PUBLIC_API_URL=http://localhost:3001/api
 `;
 fs.writeFileSync(frontendEnvPath, frontendEnvContent, 'utf8');
 console.log('  [OK] Generated frontend/.env.local');

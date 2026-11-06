@@ -1,4 +1,6 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+const rawBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+const cleanBaseUrl = rawBaseUrl.replace(/\/+$/, '');
+export const API_URL = cleanBaseUrl.endsWith('/api') ? cleanBaseUrl : `${cleanBaseUrl}/api`;
 
 /**
  * Fetch wrapper that automatically handles CSRF tokens and Authorization headers.
@@ -21,9 +23,9 @@ export const fetchApi = async (endpoint: string, options: RequestInit = {}) => {
     }
   }
 
+  const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
 
-
-  const response = await fetch(`${API_URL}${endpoint}`, {
+  const response = await fetch(`${API_URL}${normalizedEndpoint}`, {
     ...options,
     headers,
     credentials: 'include',
