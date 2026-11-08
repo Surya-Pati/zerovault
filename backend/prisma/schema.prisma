@@ -48,6 +48,7 @@ model VulnerabilityListing {
   price_wei              String        
   status                 ListingStatus @default(CREATED)
   encrypted_payload_uri  String?       
+  ipfs_hash              String?
   key_hash               String?
   vendor_address         String?
   claims                 Json?
@@ -67,6 +68,8 @@ model EscrowTransaction {
   tx_hash_settle    String?
   status            ListingStatus @default(CREATED)
   bounty_locked_at  DateTime?
+  buyer_public_key  String?
+  encrypted_key     String?
   decryption_key    String?
 
   listing           VulnerabilityListing @relation(fields: [listing_id], references: [id])

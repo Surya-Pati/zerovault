@@ -21,6 +21,7 @@ import {
   ArrowLeft,
   Check
 } from "lucide-react";
+import { parseEther, keccak256, toUtf8Bytes } from "ethers";
 import { fetchApi } from "@/lib/api";
 import { createMerkleTree, getInclusionProof } from "@zerovault/shared/dist/merkle";
 import { encryptPayload } from "@zerovault/shared/dist/crypto";
@@ -151,7 +152,8 @@ export default function SubmitListingPage() {
         }
       });
 
-      const priceWei = (parseFloat(formData.priceEth) * 1e18).toString();
+      const priceWei = parseEther(formData.priceEth || "0").toString();
+      const ipfsHash = keccak256(toUtf8Bytes(encrypted.ciphertext));
 
       // 6. Send ONLY ciphertext and revealed claims to backend
       const response = await fetchApi(`/listings`, {
@@ -167,6 +169,7 @@ export default function SubmitListingPage() {
           ciphertext: encrypted.ciphertext,
           iv: encrypted.iv,
           keyHash: keyHash,
+          ipfsHash: ipfsHash,
           merkleRoot: merkleResult.root,
         }),
       });

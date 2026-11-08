@@ -31,9 +31,9 @@ export class MerkleService {
   }
 
   /**
-   * Computes the leaf hash for a claim key-value pair.
+   * Computes the leaf hash for a claim key-value pair with mandatory salt.
    */
-  public static hashClaim(key: string, value: string): string {
-    return hashLeaf(key, value);
+  public static hashClaim(key: string, value: string, salt: string): string {
+    return hashLeaf(key, value, salt);
   }
 }

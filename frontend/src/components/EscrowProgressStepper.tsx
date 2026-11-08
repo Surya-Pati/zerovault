@@ -32,6 +32,8 @@ import {
   getRefundBalance,
   withdrawRefundOnChain
 } from "@/lib/contracts";
+import { encryptECIES } from "@/lib/crypto";
+import { keccak256, toUtf8Bytes } from "ethers";
 import { fetchApi } from "@/lib/api";
 import { useAuth } from "@/providers/AuthProvider";
 
@@ -157,7 +159,7 @@ export default function EscrowProgressStepper({
       const effectiveVendor = (!vendorAddress || vendorAddress === "0x...") 
         ? "0x0000000000000000000000000000000000000000" 
         : vendorAddress;
-      const receipt = await commitVulnerabilityOnChain(merkleRoot, keyHash, effectiveVendor);
+      const receipt = await commitVulnerabilityOnChain(merkleRoot, keyHash, effectiveVendor, priceEth);
       
       // 1. Notify backend database directly
       try {
@@ -311,17 +313,30 @@ export default function EscrowProgressStepper({
     const normalizedKey = normalizeHexKey(rawKey);
     const calculatedHash = computeKeyHash(normalizedKey);
     const expectedHash = keyHash.startsWith('0x') ? keyHash.toLowerCase() : `0x${keyHash}`.toLowerCase();
-    if (keyHash && calculatedHash.toLowerCase() !== expectedHash) {
+    const legacyUtf8Hash = keccak256(toUtf8Bytes(normalizedKey)).toLowerCase();
+    if (keyHash && calculatedHash.toLowerCase() !== expectedHash && legacyUtf8Hash !== expectedHash) {
       setTxState({
         isLoading: false,
-        error: `Key mismatch! Keccak256("${rawKey}") = ${calculatedHash.slice(0, 14)}... does not match expected KeyHash ${keyHash.slice(0, 14)}...`,
+        error: `Key mismatch! Keccak256("${rawKey}") does not match expected KeyHash ${keyHash.slice(0, 14)}...`,
       });
       return;
     }
 
     setTxState({ isLoading: true, error: undefined, successMsg: undefined });
     try {
-      const receipt = await revealAndClaimOnChain(merkleRoot, normalizedKey);
+      // Fetch on-chain escrow to obtain registered buyer public key for asymmetric ECIES key encapsulation
+      const onChain = await fetchOnChainEscrow(merkleRoot);
+      const buyerPubKey = onChain?.buyerPublicKey;
+
+      let payloadForContract = normalizedKey;
+      const cleanPubKey = buyerPubKey?.startsWith('0x') ? buyerPubKey.slice(2) : buyerPubKey;
+      if (cleanPubKey && (cleanPubKey.length === 66 || cleanPubKey.length === 130)) {
+        payloadForContract = await encryptECIES(`0x${cleanPubKey}`, normalizedKey);
+      } else {
+        payloadForContract = normalizedKey.length >= 130 ? normalizedKey : "0x" + normalizedKey.padEnd(130, "0");
+      }
+
+      const receipt = await revealAndClaimOnChain(merkleRoot, normalizedKey, payloadForContract);
       
       try {
         await fetchApi(`/listings/${listingId}/settle`, {
@@ -332,6 +347,7 @@ export default function EscrowProgressStepper({
           body: JSON.stringify({ 
             tx_hash_settle: receipt?.hash || "0x", 
             decryptionKey: normalizedKey,
+            encryptedKey: payloadForContract,
             contract_address: DEFAULT_ZEROVAULT_ADDRESS
           })
         });

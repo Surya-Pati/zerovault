@@ -6,23 +6,27 @@ const prisma = new PrismaClient();
 
 export const ZEROVAULT_ABI = [
   // Events
-  'event VulnerabilityCommitted(bytes32 indexed merkleRoot, address indexed seller, address indexed vendor, bytes32 keyHash)',
-  'event BountyLocked(bytes32 indexed merkleRoot, uint256 amount)',
-  'event SettlementConfirmed(bytes32 indexed merkleRoot, bytes32 keyHash)',
+  'event VulnerabilityCommitted(bytes32 indexed merkleRoot, address indexed seller, address indexed vendor, bytes32 keyHash, uint256 askingPrice, bytes32 ipfsHash)',
+  'event BountyLocked(bytes32 indexed merkleRoot, address indexed buyer, uint256 amount, bytes buyerPublicKey)',
+  'event SettlementConfirmed(bytes32 indexed merkleRoot, bytes32 keyHash, bytes encryptedKey)',
   'event VaultExpired(bytes32 indexed merkleRoot)',
   'event BountyReclaimed(bytes32 indexed merkleRoot)',
   'event KYCStatusUpdated(address indexed user, bool status)',
+  'event RefundWithdrawn(address indexed recipient, uint256 amount)',
   
   // Functions
-  'function escrows(bytes32) view returns (bytes32 keyHash, address seller, address vendor, uint256 bountyAmount, uint256 commitTimestamp, uint256 bountyLockedAt, uint8 state)',
-  'function commitVulnerability(bytes32 merkleRoot, bytes32 keyHash, address vendor) external payable',
-  'function lockBounty(bytes32 merkleRoot) external payable',
-  'function revealAndClaim(bytes32 merkleRoot, string memory decryptionKey) external',
+  'function escrows(bytes32) view returns (bytes32 keyHash, bytes32 ipfsHash, address seller, address vendor, uint256 askingPrice, uint256 bountyAmount, uint256 commitTimestamp, uint256 bountyLockedAt, uint256 pauseOffset, bytes buyerPublicKey, bytes encryptedKey, uint8 state)',
+  'function commitVulnerability(bytes32 merkleRoot, bytes32 keyHash, address vendor, uint256 askingPrice, bytes32 ipfsHash) external',
+  'function lockBounty(bytes32 merkleRoot, bytes calldata buyerPublicKey) external payable',
+  'function revealAndClaim(bytes32 merkleRoot, bytes calldata decryptionKey, bytes calldata encryptedKeyForBuyer) external',
   'function triggerDeadMansSwitch(bytes32 merkleRoot) external',
   'function reclaimBounty(bytes32 merkleRoot) external',
+  'function withdrawRefund() external',
   'function isKYCVerified(address) view returns (bool)',
   'function refunds(address) view returns (uint256)',
-  'function paused() view returns (bool)'
+  'function paused() view returns (bool)',
+  'function totalPausedTime() view returns (uint256)',
+  'function getActiveLockElapsed(bytes32) view returns (uint256)'
 ];
 
 export interface Web3BridgeConfig {
@@ -159,10 +163,13 @@ export async function handleContractEvent(
       resolvedBuyerId = 'buyer-placeholder';
     }
 
-    // Update VulnerabilityListing status
+    // Update VulnerabilityListing status and ipfs_hash if available
     const updatedListing = await prisma.vulnerabilityListing.update({
       where: { id: listing.id },
-      data: { status },
+      data: {
+        status,
+        ...(extraData?.ipfsHash ? { ipfs_hash: extraData.ipfsHash } : {}),
+      },
     });
 
     const defaultContract =
@@ -176,6 +183,8 @@ export async function handleContractEvent(
         ...(status === ListingStatus.BOUNTY_LOCKED
           ? { bounty_locked_at: new Date() }
           : {}),
+        ...(extraData?.buyerPublicKey ? { buyer_public_key: extraData.buyerPublicKey } : {}),
+        ...(extraData?.encryptedKey ? { encrypted_key: extraData.encryptedKey } : {}),
       },
       create: {
         listing_id: listing.id,
@@ -185,6 +194,8 @@ export async function handleContractEvent(
         ...(status === ListingStatus.BOUNTY_LOCKED
           ? { bounty_locked_at: new Date() }
           : {}),
+        ...(extraData?.buyerPublicKey ? { buyer_public_key: extraData.buyerPublicKey } : {}),
+        ...(extraData?.encryptedKey ? { encrypted_key: extraData.encryptedKey } : {}),
       },
     });
 
@@ -365,15 +376,22 @@ export class Web3BridgeService {
               let extraData: any = undefined;
               let statusOverride: ListingStatus | undefined = undefined;
 
-              if (eventName === 'BountyLocked' && log.args?.[1] !== undefined) {
-                let buyerAddress: string | undefined;
-                try {
-                  const escrowOnChain = await this.contract.escrows(merkleRoot);
-                  if (escrowOnChain && escrowOnChain.vendor && escrowOnChain.vendor !== ethers.ZeroAddress) {
-                    buyerAddress = escrowOnChain.vendor;
-                  }
-                } catch (e) {}
-                extraData = { amount: log.args[1], buyerAddress };
+              if (eventName === 'BountyLocked') {
+                const buyerAddress = log.args?.[1];
+                const amount = log.args?.[2];
+                const buyerPublicKey = log.args?.[3];
+                extraData = { amount, buyerAddress, buyerPublicKey };
+              } else if (eventName === 'SettlementConfirmed') {
+                const keyHash = log.args?.[1];
+                const encryptedKey = log.args?.[2];
+                extraData = { keyHash, encryptedKey };
+              } else if (eventName === 'VulnerabilityCommitted') {
+                const sellerAddress = log.args?.[1];
+                const vendorAddress = log.args?.[2];
+                const keyHash = log.args?.[3];
+                const askingPrice = log.args?.[4];
+                const ipfsHash = log.args?.[5];
+                extraData = { sellerAddress, vendorAddress, keyHash, askingPrice, ipfsHash };
               }
 
               await handleContractEvent(eventName, merkleRoot, extraData, statusOverride);
@@ -404,36 +422,25 @@ export class Web3BridgeService {
     if (!this.contract) return;
 
     // Listen to VulnerabilityCommitted event
-    this.contract.on('VulnerabilityCommitted', (merkleRoot: string, seller: string, vendor: string, keyHash: string) => {
+    this.contract.on('VulnerabilityCommitted', (merkleRoot: string, seller: string, vendor: string, keyHash: string, askingPrice: bigint, ipfsHash: string) => {
       console.log(`[Web3Bridge] Received VulnerabilityCommitted event: merkleRoot=${merkleRoot}`);
-      handleContractEvent('VulnerabilityCommitted', merkleRoot).catch((err) => {
+      handleContractEvent('VulnerabilityCommitted', merkleRoot, { sellerAddress: seller, vendorAddress: vendor, keyHash, askingPrice, ipfsHash }).catch((err) => {
         console.error('[Web3Bridge] Error handling VulnerabilityCommitted event:', err);
       });
     }).catch(console.error);
 
     // Listen to BountyLocked event
-    this.contract.on('BountyLocked', async (merkleRoot: string, amount: bigint) => {
-      console.log(`[Web3Bridge] Received BountyLocked event: merkleRoot=${merkleRoot}, amount=${amount.toString()}`);
-      let buyerAddress: string | undefined;
-      try {
-        if (this.contract) {
-          const escrowOnChain = await this.contract.escrows(merkleRoot);
-          if (escrowOnChain && escrowOnChain.vendor && escrowOnChain.vendor !== ethers.ZeroAddress) {
-            buyerAddress = escrowOnChain.vendor;
-          }
-        }
-      } catch (err) {
-        console.warn('[Web3Bridge] Failed to query vendor on-chain for BountyLocked:', err);
-      }
-      handleContractEvent('BountyLocked', merkleRoot, { amount, buyerAddress }).catch((err) => {
+    this.contract.on('BountyLocked', async (merkleRoot: string, buyer: string, amount: bigint, buyerPublicKey: string) => {
+      console.log(`[Web3Bridge] Received BountyLocked event: merkleRoot=${merkleRoot}, buyer=${buyer}, amount=${amount.toString()}`);
+      handleContractEvent('BountyLocked', merkleRoot, { amount, buyerAddress: buyer, buyerPublicKey }).catch((err) => {
         console.error('[Web3Bridge] Error handling BountyLocked event:', err);
       });
     }).catch(console.error);
 
     // Listen to SettlementConfirmed event
-    this.contract.on('SettlementConfirmed', (merkleRoot: string, keyHash: string) => {
+    this.contract.on('SettlementConfirmed', (merkleRoot: string, keyHash: string, encryptedKey: string) => {
       console.log(`[Web3Bridge] Received SettlementConfirmed event: merkleRoot=${merkleRoot}`);
-      handleContractEvent('SettlementConfirmed', merkleRoot, { keyHash }).catch((err) => {
+      handleContractEvent('SettlementConfirmed', merkleRoot, { keyHash, encryptedKey }).catch((err) => {
         console.error('[Web3Bridge] Error handling SettlementConfirmed event:', err);
       });
     }).catch(console.error);

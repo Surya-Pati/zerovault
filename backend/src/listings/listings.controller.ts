@@ -5,7 +5,7 @@ import { encryptPayload } from '@zerovault/shared';
 import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
-import { keccak256, toUtf8Bytes, JsonRpcProvider } from 'ethers';
+import { keccak256, toUtf8Bytes, JsonRpcProvider, isHexString, getBytes } from 'ethers';
 
 const prisma = new PrismaClient();
 const PUBLIC_STORAGE_DIR = path.join(__dirname, '../../storage/public');
@@ -607,14 +607,17 @@ export const settleEscrow = async (req: Request, res: Response) => {
     }
 
     const ethersModule = await import('ethers');
-    const ifaceInstance = new ethersModule.Interface([
+    const ifaceV2 = new ethersModule.Interface([
+      'event SettlementConfirmed(bytes32 indexed merkleRoot, bytes32 keyHash, bytes encryptedKey)'
+    ]);
+    const ifaceV1 = new ethersModule.Interface([
       'event SettlementConfirmed(bytes32 indexed merkleRoot, bytes32 keyHash)'
     ]);
     
     let matchedRoot = false;
     for (const log of receipt.logs) {
       try {
-        const parsed = ifaceInstance.parseLog(log);
+        const parsed = ifaceV2.parseLog(log) || ifaceV1.parseLog(log);
         if (parsed && parsed.name === 'SettlementConfirmed' && parsed.args.merkleRoot.toLowerCase() === listing.merkle_root.toLowerCase()) {
           matchedRoot = true;
           break;
@@ -628,11 +631,13 @@ export const settleEscrow = async (req: Request, res: Response) => {
 
     // Verify that the provided decryptionKey matches the listing's committed key_hash BEFORE any database write
     const cleanKey = decryptionKey.trim().replace(/^0x/i, '').toLowerCase();
-    const computedKeyHash = keccak256(toUtf8Bytes(cleanKey)).toLowerCase();
+    const hex = cleanKey.startsWith('0x') ? cleanKey : `0x${cleanKey}`;
+    const rawByteHash = isHexString(hex, 32) ? keccak256(getBytes(hex)).toLowerCase() : null;
+    const utf8Hash = keccak256(toUtf8Bytes(cleanKey)).toLowerCase();
     const cleanListingKeyHash = listing.key_hash 
       ? (listing.key_hash.startsWith('0x') ? listing.key_hash : `0x${listing.key_hash}`).toLowerCase()
       : null;
-    if (cleanListingKeyHash && computedKeyHash !== cleanListingKeyHash) {
+    if (cleanListingKeyHash && rawByteHash !== cleanListingKeyHash && utf8Hash !== cleanListingKeyHash) {
       return res.status(400).json({ error: 'Decryption key does not match committed key hash' });
     }
 

@@ -14,7 +14,7 @@ const isSepolia = targetNetwork === 'sepolia';
 const config = isSepolia ? {
   name: 'Ethereum Sepolia',
   chainId: '11155111',
-  contractAddress: customAddress || '0xd99501e8a7CE41fFb1DdEF4ca288B57Cf9966091',
+  contractAddress: customAddress || '0x66AfE225958aF56E6fB99995897ED3EF17013185',
   rpcUrl: 'https://eth-sepolia.g.alchemy.com/v2/alch_6Vg9aD0dEisSAvxZ4lUfn',
 } : {
   name: 'Hardhat Localhost (31337)',

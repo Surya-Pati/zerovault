@@ -28,18 +28,23 @@ describe('Module 2 — Cryptographic Hashing & Merkle Tree Library', () => {
       });
     });
 
-    it('generates deterministic output for identical input', () => {
-      const tree1 = createMerkleTree(samplePayload);
-      const tree2 = createMerkleTree(samplePayload);
+    it('generates deterministic output for identical salted input', () => {
+      const saltedPayload = [
+        { key: 'target', value: 'Safari 17.4 macOS / iOS', salt: '0x1111111111111111111111111111111111111111111111111111111111111111' },
+        { key: 'cwe', value: 'CWE-416: Use After Free in WebKit', salt: '0x2222222222222222222222222222222222222222222222222222222222222222' },
+      ];
+      const tree1 = createMerkleTree(saltedPayload);
+      const tree2 = createMerkleTree(saltedPayload);
 
       expect(tree1.root).toEqual(tree2.root);
       expect(tree1.leafHashes).toEqual(tree2.leafHashes);
     });
 
     it('computes hashLeaf deterministically', () => {
-      const h1 = hashLeaf('cwe', 'CWE-416');
-      const h2 = hashLeaf('cwe', 'CWE-416');
-      const h3 = hashLeaf('cwe', 'CWE-79');
+      const salt = generateClaimSalt();
+      const h1 = hashLeaf('cwe', 'CWE-416', salt);
+      const h2 = hashLeaf('cwe', 'CWE-416', salt);
+      const h3 = hashLeaf('cwe', 'CWE-79', salt);
 
       expect(h1).toEqual(h2);
       expect(h1).not.toEqual(h3);
@@ -48,8 +53,9 @@ describe('Module 2 — Cryptographic Hashing & Merkle Tree Library', () => {
     it('prevents delimiter-shift collision attacks using strict ABI encoding', () => {
       // If simple concatenation was used (e.g. key + ":" + value), 
       // these two would incorrectly hash to the exact same leaf: "target:windows:10"
-      const collision1 = hashLeaf('target', 'windows:10');
-      const collision2 = hashLeaf('target:windows', '10');
+      const salt = generateClaimSalt();
+      const collision1 = hashLeaf('target', 'windows:10', salt);
+      const collision2 = hashLeaf('target:windows', '10', salt);
 
       expect(collision1).not.toEqual(collision2);
     });
@@ -71,7 +77,7 @@ describe('Module 2 — Cryptographic Hashing & Merkle Tree Library', () => {
       const result = createMerkleTree(samplePayload);
       const inclusionProof = getInclusionProof(result, 1);
 
-      const tamperedLeafHash = hashLeaf('cwe', 'TAMPERED_VALUE_CWE_999');
+      const tamperedLeafHash = hashLeaf('cwe', 'TAMPERED_VALUE_CWE_999', inclusionProof.claim.salt);
       const isValid = verifyProof(result.root, tamperedLeafHash, inclusionProof.proof);
 
       expect(isValid).toBe(false);
@@ -126,11 +132,10 @@ describe('Module 2 — Cryptographic Hashing & Merkle Tree Library', () => {
       const result = createMerkleTree(samplePayload);
       const inclusionProof = getInclusionProof(result, 2);
 
-      // Should only reveal the single claim at index 2 (severity)
-      expect(inclusionProof.claim).toEqual({
-        key: 'severity',
-        value: 'Critical (CVSS 9.8)',
-      });
+      // Should only reveal the single claim at index 2 (severity) along with its mandatory salt
+      expect(inclusionProof.claim.key).toBe('severity');
+      expect(inclusionProof.claim.value).toBe('Critical (CVSS 9.8)');
+      expect(inclusionProof.claim.salt).toMatch(/^0x[a-fA-F0-9]{64}$/);
 
       // Proof array contains only bytes32 hex hashes
       inclusionProof.proof.forEach((p) => {
@@ -146,13 +151,24 @@ describe('Module 2 — Cryptographic Hashing & Merkle Tree Library', () => {
   });
 
   describe('Salted Merkle Leaves (LOG-M2-01 Pre-Image Dictionary Protection)', () => {
-    it('produces distinct hashes when salt is provided vs unsalted', () => {
-      const salt = generateClaimSalt();
-      const unsalted = hashLeaf('cwe', 'CWE-416');
-      const salted = hashLeaf('cwe', 'CWE-416', salt);
+    it('strictly enforces mandatory salt and rejects unsalted claims', () => {
+      // @ts-expect-error Testing runtime rejection when salt is missing
+      expect(() => hashLeaf('cwe', 'CWE-416')).toThrow('Mandatory salt missing');
+      expect(() => hashLeaf('cwe', 'CWE-416', '')).toThrow('Mandatory salt missing');
+    });
 
-      expect(salted).not.toEqual(unsalted);
-      expect(salted).toMatch(/^0x[a-fA-F0-9]{64}$/);
+    it('rejects invalid salts that are not 32 bytes hex', () => {
+      expect(() => hashLeaf('cwe', 'CWE-416', '0x1234')).toThrow('Invalid salt');
+      expect(() => hashLeaf('cwe', 'CWE-416', 'not-a-hex-string')).toThrow('Invalid salt');
+    });
+
+    it('automatically generates 256-bit salts during createMerkleTree if omitted', () => {
+      const tree = createMerkleTree({ target: 'Linux Kernel 6.8', severity: 'CRITICAL' });
+      expect(tree.leaves[0].salt).toBeDefined();
+      expect(tree.leaves[0].salt).toMatch(/^0x[a-fA-F0-9]{64}$/);
+      expect(tree.leaves[1].salt).toBeDefined();
+      expect(tree.leaves[1].salt).toMatch(/^0x[a-fA-F0-9]{64}$/);
+      expect(tree.leaves[0].salt).not.toEqual(tree.leaves[1].salt);
     });
 
     it('produces different hashes for identical key/value pairs with different salts', () => {

@@ -143,7 +143,7 @@ describe('ZeroVault Backend Integration Tests', () => {
   beforeAll(() => {
     const iface = new Interface([
       'event BountyLocked(bytes32 indexed merkleRoot, uint256 amount)',
-      'event SettlementConfirmed(bytes32 indexed merkleRoot, bytes32 keyHash)',
+      'event SettlementConfirmed(bytes32 indexed merkleRoot, bytes32 keyHash, bytes encryptedKey)',
     ]);
 
     const contractAddress = process.env.ZEROVAULT_CONTRACT_ADDRESS || '0xd99501e8a7CE41fFb1DdEF4ca288B57Cf9966091';
@@ -161,9 +161,11 @@ describe('ZeroVault Backend Integration Tests', () => {
         };
       }
       if (hash === SETTLE_TX_HASH) {
+        const mockEncryptedKey = '0x' + 'aa'.repeat(93);
         const log = iface.encodeEventLog(iface.getEvent('SettlementConfirmed')!, [
           merkleRoot,
           keyHash,
+          mockEncryptedKey,
         ]);
         return {
           status: 1,

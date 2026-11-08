@@ -75,6 +75,9 @@ frontend/out/
 # Testing and coverage
 # ==========================================
 coverage/
+coverage.json
+*.coverage.json
+contracts/coverage.json
 *.lcov
 .nyc_output/
 

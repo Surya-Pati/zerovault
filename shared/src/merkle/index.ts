@@ -4,10 +4,16 @@ import { keccak256, toUtf8Bytes, isHexString, AbiCoder, randomBytes, hexlify } f
 export interface DisclosureClaim {
   key: string;
   value: string;
-  salt?: string; // 0x-prefixed 32-byte hex salt for pre-image dictionary protection
+  salt: string; // 0x-prefixed 32-byte hex salt for pre-image dictionary protection (MANDATORY)
 }
 
-export type DisclosurePayloadInput = DisclosureClaim[] | Record<string, string>;
+export interface RawDisclosureClaim {
+  key: string;
+  value: string;
+  salt?: string;
+}
+
+export type DisclosurePayloadInput = (DisclosureClaim | RawDisclosureClaim)[] | Record<string, string>;
 
 export interface MerkleResult {
   root: string;           // 0x-prefixed 32-byte hex
@@ -46,17 +52,18 @@ export function keccak256Hash(data: string | Uint8Array | Buffer): Buffer {
 
 /**
  * Pure function to compute keccak256 hash of a single claim leaf.
- * Uses strict Ethereum ABI encoding:
- * - If salt is provided: keccak256(abi.encode(key, value, salt))
- * - If no salt: keccak256(abi.encode(key, value)) for backward compatibility
+ * Uses strict Ethereum ABI encoding: keccak256(abi.encode(key, value, salt)).
+ * Enforces mandatory 32-byte (256-bit) salt to prevent dictionary & rainbow table attacks.
  */
-export function hashLeaf(key: string, value: string, salt?: string): string {
-  if (salt) {
-    const formattedSalt = isHexString(salt) ? salt : (salt.startsWith('0x') ? salt : `0x${salt}`);
-    const encoded = abiCoder.encode(['string', 'string', 'bytes32'], [key, value, formattedSalt]);
-    return keccak256(encoded);
+export function hashLeaf(key: string, value: string, salt: string): string {
+  if (!salt || typeof salt !== 'string') {
+    throw new Error('Mandatory salt missing: every disclosure leaf must be salted');
   }
-  const encoded = abiCoder.encode(['string', 'string'], [key, value]);
+  const formattedSalt = salt.startsWith('0x') ? salt : `0x${salt}`;
+  if (!isHexString(formattedSalt, 32)) {
+    throw new Error('Invalid salt: must be a 32-byte (256-bit) hex string');
+  }
+  const encoded = abiCoder.encode(['string', 'string', 'bytes32'], [key, value, formattedSalt]);
   return keccak256(encoded);
 }
 
@@ -69,19 +76,25 @@ export function generateClaimSalt(): string {
 
 /**
  * Normalizes input payload into an array of DisclosureClaims.
- * Preserves per-claim salts if provided at claim-creation time.
+ * Automatically generates cryptographically secure 256-bit salts if not provided.
  */
 export function normalizePayload(input: DisclosurePayloadInput): DisclosureClaim[] {
   if (Array.isArray(input)) {
-    return input.map((item) => ({
-      key: item.key.trim(),
-      value: item.value.trim(),
-      ...(item.salt ? { salt: item.salt } : {}),
-    }));
+    return input.map((item) => {
+      const hasValidSalt = item.salt && typeof item.salt === 'string' && isHexString(item.salt.startsWith('0x') ? item.salt : `0x${item.salt}`, 32);
+      return {
+        key: item.key.trim(),
+        value: item.value.trim(),
+        salt: hasValidSalt
+          ? (item.salt!.startsWith('0x') ? item.salt! : `0x${item.salt}`)
+          : generateClaimSalt(),
+      };
+    });
   }
   return Object.entries(input).map(([key, value]) => ({
     key: key.trim(),
     value: value.trim(),
+    salt: generateClaimSalt(),
   }));
 }
 
@@ -128,7 +141,7 @@ export function getInclusionProof(merkleResult: MerkleResult, leafIndex: number)
     claim: {
       key: rawClaim.key,
       value: rawClaim.value,
-      ...(rawClaim.salt ? { salt: rawClaim.salt } : {}),
+      salt: rawClaim.salt,
     },
     proof,
   };

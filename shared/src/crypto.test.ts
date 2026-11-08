@@ -8,7 +8,10 @@ import {
   hexToBuffer,
   bufferToBase64,
   base64ToBuffer,
+  encryptECIES,
+  decryptECIES,
 } from './crypto';
+import { Wallet, SigningKey } from 'ethers';
 
 describe('Web Crypto Payload Encryption & Decryption Module (AES-256-GCM)', () => {
   const sampleReport = JSON.stringify({
@@ -108,5 +111,64 @@ describe('Web Crypto Payload Encryption & Decryption Module (AES-256-GCM)', () =
     const base64 = bufferToBase64(sampleBytes);
     const fromBase64 = base64ToBuffer(base64);
     expect(new Uint8Array(fromBase64)).toEqual(sampleBytes);
+  });
+
+  describe('ECIES Asymmetric Key Exchange (secp256k1 + AES-256-GCM)', () => {
+    test('encrypts and decrypts AES key using secp256k1 keypair', async () => {
+      const buyer = Wallet.createRandom();
+      const rawAesKey = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+
+      const encrypted = await encryptECIES(buyer.publicKey, rawAesKey);
+      expect(encrypted).toMatch(/^0x[0-9a-fA-F]{186}$/); // 93 bytes hex (186 hex chars)
+
+      const decrypted = await decryptECIES(buyer.privateKey, encrypted);
+      expect(decrypted.toLowerCase()).toBe(rawAesKey.toLowerCase());
+    });
+
+    test('supports uncompressed (65-byte) and compressed (33-byte) public keys', async () => {
+      const buyer = Wallet.createRandom();
+      const signingKey = new SigningKey(buyer.privateKey);
+      const rawAesKey = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
+
+      // Compressed (33B / 66 chars)
+      const enc1 = await encryptECIES(signingKey.compressedPublicKey, rawAesKey);
+      const dec1 = await decryptECIES(buyer.privateKey, enc1);
+      expect(dec1.toLowerCase()).toBe(rawAesKey.toLowerCase());
+
+      // Uncompressed (65B / 130 chars)
+      const enc2 = await encryptECIES(signingKey.publicKey, rawAesKey);
+      const dec2 = await decryptECIES(buyer.privateKey, enc2);
+      expect(dec2.toLowerCase()).toBe(rawAesKey.toLowerCase());
+    });
+
+    test('fails decryption when wrong private key is provided', async () => {
+      const buyer = Wallet.createRandom();
+      const attacker = Wallet.createRandom();
+      const rawAesKey = '1111111111111111111111111111111111111111111111111111111111111111';
+
+      const encrypted = await encryptECIES(buyer.publicKey, rawAesKey);
+      await expect(decryptECIES(attacker.privateKey, encrypted)).rejects.toThrow();
+    });
+
+    test('fails decryption if encrypted payload is tampered', async () => {
+      const buyer = Wallet.createRandom();
+      const rawAesKey = '2222222222222222222222222222222222222222222222222222222222222222';
+
+      const encrypted = await encryptECIES(buyer.publicKey, rawAesKey);
+      // Tamper last byte
+      const tampered = encrypted.slice(0, -2) + 'ff';
+      await expect(decryptECIES(buyer.privateKey, tampered)).rejects.toThrow();
+    });
+
+    test('rejects invalid or truncated payload inputs', async () => {
+      const buyer = Wallet.createRandom();
+      await expect(decryptECIES(buyer.privateKey, '0x1234')).rejects.toThrow('Invalid ECIES payload');
+      await expect(decryptECIES(buyer.privateKey, 'not-hex')).rejects.toThrow('Invalid ECIES payload');
+    });
+
+    test('rejects invalid rawAesKey that is not 32 bytes hex', async () => {
+      const buyer = Wallet.createRandom();
+      await expect(encryptECIES(buyer.publicKey, '1234')).rejects.toThrow('Invalid rawAesKeyHex');
+    });
   });
 });

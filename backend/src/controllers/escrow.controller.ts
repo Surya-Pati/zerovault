@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { PrismaClient, ListingStatus } from '@prisma/client';
 import { z } from 'zod';
-import { keccak256, toUtf8Bytes } from 'ethers';
+import { keccak256, toUtf8Bytes, isHexString, getBytes } from 'ethers';
 
 const prisma = new PrismaClient();
 
@@ -162,9 +162,11 @@ export const revealEscrow = async (req: Request, res: Response) => {
     // Verify that the provided decryptionKey matches the listing's committed key_hash BEFORE any database write
     if (listing.key_hash) {
       const cleanKey = decryptionKey.trim().replace(/^0x/i, '').toLowerCase();
-      const computedKeyHash = keccak256(toUtf8Bytes(cleanKey)).toLowerCase();
+      const hex = cleanKey.startsWith('0x') ? cleanKey : `0x${cleanKey}`;
+      const rawByteHash = isHexString(hex, 32) ? keccak256(getBytes(hex)).toLowerCase() : null;
+      const utf8Hash = keccak256(toUtf8Bytes(cleanKey)).toLowerCase();
       const cleanListingKeyHash = (listing.key_hash.startsWith('0x') ? listing.key_hash : `0x${listing.key_hash}`).toLowerCase();
-      if (computedKeyHash !== cleanListingKeyHash) {
+      if (rawByteHash !== cleanListingKeyHash && utf8Hash !== cleanListingKeyHash) {
         return res.status(400).json({ error: 'Decryption key does not match committed key hash' });
       }
     }

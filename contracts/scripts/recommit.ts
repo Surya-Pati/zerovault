@@ -170,10 +170,32 @@ async function main() {
           vendor = ethers.ZeroAddress;
         }
 
+        let askingPrice = ethers.parseEther("0.01");
+        if (listing.price_wei) {
+          try {
+            askingPrice = BigInt(listing.price_wei);
+          } catch {
+            askingPrice = ethers.parseEther("0.01");
+          }
+        } else if ((listing as any).asking_price_eth) {
+          try {
+            askingPrice = ethers.parseEther((listing as any).asking_price_eth.toString());
+          } catch {
+            askingPrice = ethers.parseEther("0.01");
+          }
+        }
+        if (askingPrice < 1000000000000000n) { // MIN_BOUNTY 0.001 ETH
+          askingPrice = 1000000000000000n;
+        }
+
+        const ipfsHash = listing.ipfs_hash || ethers.keccak256(ethers.toUtf8Bytes(listing.id || "default_ipfs"));
+
         const tx = await vault.connect(sellerSigner).commitVulnerability(
           listing.merkle_root,
           listing.key_hash || ethers.ZeroHash,
-          vendor
+          vendor,
+          askingPrice,
+          ipfsHash
         );
         await tx.wait(1);
         console.log(`     [OK] Successfully re-committed on-chain by seller ${sellerSigner.address}.`);

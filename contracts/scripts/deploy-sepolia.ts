@@ -25,8 +25,16 @@ async function main() {
   const reclaimTimeout = process.env.SEPOLIA_RECLAIM_TIMEOUT ? parseInt(process.env.SEPOLIA_RECLAIM_TIMEOUT) : 15;
 
   console.log(`\nDeploying ZeroVault with COMMIT_TIMEOUT=${commitTimeout}s, RECLAIM_TIMEOUT=${reclaimTimeout}s...`);
+  const maxPriorityFee = ethers.parseUnits("0.05", "gwei");
+  const maxFee = ethers.parseUnits("0.2", "gwei");
+  console.log(`Gas configuration: maxFeePerGas = 0.2 gwei, maxPriorityFee = 0.05 gwei, gasLimit = 13,500,000`);
+
   const ZeroVault = await ethers.getContractFactory("ZeroVault");
-  const vault = await ZeroVault.deploy(commitTimeout, reclaimTimeout);
+  const vault = await ZeroVault.deploy(commitTimeout, reclaimTimeout, {
+    gasLimit: 13500000,
+    maxFeePerGas: maxFee,
+    maxPriorityFeePerGas: maxPriorityFee,
+  });
   
   console.log("Waiting for deployment transaction confirmation on Sepolia...");
   await vault.waitForDeployment();
@@ -38,6 +46,7 @@ async function main() {
   // Whitelist buyers for demo
   console.log("\nWhitelisting buyer accounts on Sepolia...");
   const buyerWallets = [
+    "0x7e627b8eb7f129719da32e315a20b0f39a1e4bc9", // User MetaMask wallet
     "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
     "0x90f79bf6eb2c4f870365e785982e1f101e93b906",
     "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
@@ -45,7 +54,11 @@ async function main() {
   for (const buyer of buyerWallets) {
     try {
       console.log(`  -> Whitelisting ${buyer}...`);
-      const kycTx = await vault.setKYCStatus(buyer, true);
+      const kycTx = await vault.setKYCStatus(buyer, true, {
+        gasLimit: 60000,
+        maxFeePerGas: maxFee,
+        maxPriorityFeePerGas: maxPriorityFee,
+      });
       await kycTx.wait(1);
       console.log(`     [OK] ${buyer} whitelisted on Sepolia.`);
     } catch (e: any) {

@@ -15,7 +15,7 @@ import {
   FileText,
   RefreshCw,
 } from 'lucide-react';
-import { decryptPayload } from '@zerovault/shared/dist/crypto';
+import { decryptPayload, decryptECIES } from '@/lib/crypto';
 import { fetchApi } from '@/lib/api';
 
 export interface PayloadDecryptorProps {
@@ -40,6 +40,8 @@ export const PayloadDecryptor: React.FC<PayloadDecryptorProps> = ({
   const [rawPayloadRaw, setRawPayloadRaw] = useState('');
 
   const [showKey, setShowKey] = useState(false);
+  const [buyerPrivateKey, setBuyerPrivateKey] = useState('');
+  const [showPrivKey, setShowPrivKey] = useState(false);
   const [status, setStatus] = useState<DecryptionState>('IDLE');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [decryptedContent, setDecryptedContent] = useState<string | null>(null);
@@ -140,10 +142,27 @@ export const PayloadDecryptor: React.FC<PayloadDecryptorProps> = ({
     setErrorMessage(null);
 
     try {
+      let resolvedAesKey = decryptionKey.trim();
+
+      // If the key is an ECIES ciphertext payload (>= 65 bytes / 130 hex characters)
+      // and user enters their buyer private key (or if key needs ECIES unwrapping):
+      if (resolvedAesKey.startsWith('0x') && resolvedAesKey.length >= 130) {
+        // Attempt ECIES unwrapping if buyer private key is provided via input or window
+        const potentialPrivKey = buyerPrivateKey.trim() || (window as any).__buyerPrivateKey || '';
+        if (potentialPrivKey) {
+          try {
+            resolvedAesKey = await decryptECIES(potentialPrivKey, resolvedAesKey);
+          } catch (eciesErr: any) {
+            console.warn('ECIES unwrapping attempt deferred:', eciesErr);
+            throw new Error(`Failed to unwrap ECIES key with buyer private key: ${eciesErr?.message || eciesErr}`);
+          }
+        }
+      }
+
       const plaintext = await decryptPayload({
         ciphertext: ciphertext.trim(),
         iv: iv.trim(),
-        key: decryptionKey.trim(),
+        key: resolvedAesKey,
       });
 
       setDecryptedContent(plaintext);
@@ -277,6 +296,33 @@ export const PayloadDecryptor: React.FC<PayloadDecryptorProps> = ({
                 className="w-full px-3 py-2 rounded border border-[#232732] bg-[#0C0E12] text-[#F0F2F5] focus:outline-none focus:border-[#2563EB]"
               />
             </div>
+
+            {decryptionKey.startsWith('0x') && decryptionKey.length >= 130 && (
+              <div className="sm:col-span-2 space-y-1 p-2.5 rounded border border-[#2563EB]/40 bg-[#10192A]">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-[#60A5FA] font-medium">
+                    ECIES Encapsulated Key Detected — Buyer Secp256k1 Private Key:
+                  </span>
+                  <span className="text-[9px] text-[#848B98]">Decrypted in-memory only</span>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showPrivKey ? 'text' : 'password'}
+                    value={buyerPrivateKey}
+                    onChange={(e) => setBuyerPrivateKey(e.target.value)}
+                    placeholder="0x... (buyer private key to unwrap ECIES ciphertext)"
+                    className="w-full px-3 py-1.5 pr-9 rounded border border-[#232732] bg-[#0C0E12] text-[#F0F2F5] focus:outline-none focus:border-[#2563EB] text-[11px]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPrivKey(!showPrivKey)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#848B98] hover:text-[#F0F2F5]"
+                  >
+                    {showPrivKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <button

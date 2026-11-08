@@ -1,19 +1,19 @@
-import { BrowserProvider, JsonRpcProvider, Contract, parseEther, formatEther, keccak256, toUtf8Bytes } from 'ethers';
+import { BrowserProvider, JsonRpcProvider, Contract, parseEther, formatEther, keccak256, toUtf8Bytes, getAddress, hashMessage, SigningKey, isHexString, getBytes } from 'ethers';
 
-export const DEFAULT_ZEROVAULT_ADDRESS = process.env.NEXT_PUBLIC_ZEROVAULT_ADDRESS || '0xd99501e8a7CE41fFb1DdEF4ca288B57Cf9966091';
+export const DEFAULT_ZEROVAULT_ADDRESS = process.env.NEXT_PUBLIC_ZEROVAULT_ADDRESS || '0x66AfE225958aF56E6fB99995897ED3EF17013185';
 export const DEFAULT_RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || 'http://127.0.0.1:8545';
 
 export const ZEROVAULT_ABI = [
-  "function escrows(bytes32) view returns (bytes32 keyHash, address seller, address vendor, uint256 bountyAmount, uint256 commitTimestamp, uint256 bountyLockedAt, uint8 state)",
-  "function commitVulnerability(bytes32 merkleRoot, bytes32 keyHash, address vendor) external",
-  "function lockBounty(bytes32 merkleRoot) external payable",
-  "function revealAndClaim(bytes32 merkleRoot, string calldata decryptionKey) external",
+  "function escrows(bytes32) view returns (bytes32 keyHash, bytes32 ipfsHash, address seller, address vendor, uint256 askingPrice, uint256 bountyAmount, uint256 commitTimestamp, uint256 bountyLockedAt, uint256 pauseOffset, bytes buyerPublicKey, bytes encryptedKey, uint8 state)",
+  "function commitVulnerability(bytes32 merkleRoot, bytes32 keyHash, address vendor, uint256 askingPrice, bytes32 ipfsHash) external",
+  "function lockBounty(bytes32 merkleRoot, bytes calldata buyerPublicKey) external payable",
+  "function revealAndClaim(bytes32 merkleRoot, bytes calldata decryptionKey, bytes calldata encryptedKeyForBuyer) external",
   "function triggerDeadMansSwitch(bytes32 merkleRoot) external",
   "function reclaimBounty(bytes32 merkleRoot) external",
   "function verifyPartialLeaf(bytes32 merkleRoot, bytes32 leaf, bytes32[] calldata proof) public pure returns (bool)",
-  "event VulnerabilityCommitted(bytes32 indexed merkleRoot, address indexed seller, address indexed vendor, bytes32 keyHash)",
-  "event BountyLocked(bytes32 indexed merkleRoot, uint256 amount)",
-  "event SettlementConfirmed(bytes32 indexed merkleRoot, bytes32 keyHash)",
+  "event VulnerabilityCommitted(bytes32 indexed merkleRoot, address indexed seller, address indexed vendor, bytes32 keyHash, uint256 askingPrice, bytes32 ipfsHash)",
+  "event BountyLocked(bytes32 indexed merkleRoot, address indexed buyer, uint256 amount, bytes buyerPublicKey)",
+  "event SettlementConfirmed(bytes32 indexed merkleRoot, bytes32 keyHash, bytes encryptedKey)",
   "event VaultExpired(bytes32 indexed merkleRoot)",
   "event BountyReclaimed(bytes32 indexed merkleRoot)",
   "event KYCStatusUpdated(address indexed user, bool status)",
@@ -22,6 +22,8 @@ export const ZEROVAULT_ABI = [
   "function pause() external",
   "function unpause() external",
   "function paused() view returns (bool)",
+  "function totalPausedTime() view returns (uint256)",
+  "function getActiveLockElapsed(bytes32) view returns (uint256)",
   "function withdrawRefund() external",
   "function refunds(address) view returns (uint256)",
   "event RefundWithdrawn(address indexed recipient, uint256 amount)"
@@ -57,11 +59,17 @@ export enum EscrowStateOnChain {
 
 export interface OnChainEscrow {
   keyHash: string;
+  ipfsHash: string;
   seller: string;
   vendor: string;
+  askingPriceEth: string;
   bountyAmountEth: string;
   commitTimestamp: number;
   bountyLockedAt: number;
+  pauseOffset: number;
+  pauseOffsetAtLock?: number;
+  buyerPublicKey: string;
+  encryptedKey: string;
   state: EscrowStateOnChain;
 }
 
@@ -130,12 +138,18 @@ export async function fetchOnChainEscrow(merkleRoot: string, contractAddress: st
 
     return {
       keyHash: result[0] || result.keyHash,
-      seller: result[1] || result.seller,
-      vendor: result[2] || result.vendor,
-      bountyAmountEth: formatEther(result[3] !== undefined ? result[3] : result.bountyAmount),
-      commitTimestamp: Number(result[4] !== undefined ? result[4] : result.commitTimestamp),
-      bountyLockedAt: Number(result[5] !== undefined ? result[5] : result.bountyLockedAt),
-      state: Number(result[6] !== undefined ? result[6] : result.state) as EscrowStateOnChain,
+      ipfsHash: result[1] || result.ipfsHash || "0x",
+      seller: result[2] || result.seller,
+      vendor: result[3] || result.vendor,
+      askingPriceEth: formatEther(result[4] !== undefined ? result[4] : (result.askingPrice || BigInt(0))),
+      bountyAmountEth: formatEther(result[5] !== undefined ? result[5] : (result.bountyAmount || BigInt(0))),
+      commitTimestamp: Number(result[6] !== undefined ? result[6] : (result.commitTimestamp || 0)),
+      bountyLockedAt: Number(result[7] !== undefined ? result[7] : (result.bountyLockedAt || 0)),
+      pauseOffset: Number(result[8] !== undefined ? result[8] : (result.pauseOffset || result.pauseOffsetAtLock || 0)),
+      pauseOffsetAtLock: Number(result[8] !== undefined ? result[8] : (result.pauseOffset || result.pauseOffsetAtLock || 0)),
+      buyerPublicKey: result[9] || result.buyerPublicKey || "",
+      encryptedKey: result[10] || result.encryptedKey || "",
+      state: Number(result[11] !== undefined ? result[11] : result.state) as EscrowStateOnChain,
     };
   } catch (err: any) {
     // Only warn if it's an unexpected error rather than uncommitted or empty bytecode
@@ -146,24 +160,57 @@ export async function fetchOnChainEscrow(merkleRoot: string, contractAddress: st
   }
 }
 
-export async function lockBountyOnChain(merkleRoot: string, amountEth: string, contractAddress: string = DEFAULT_ZEROVAULT_ADDRESS) {
+/**
+ * Obtains or recovers the buyer's 33-byte compressed secp256k1 public key via wallet signature.
+ */
+export async function getOrRegisterBuyerPublicKey(provider: BrowserProvider): Promise<string> {
+  const signer = await provider.getSigner();
+  const registrationMsg = "ZeroVault Asymmetric Key Exchange Public Key Registration";
+  const signature = await signer.signMessage(registrationMsg);
+  const digest = hashMessage(registrationMsg);
+  const recoveredPubKey = SigningKey.recoverPublicKey(digest, signature);
+  return SigningKey.computePublicKey(recoveredPubKey, true);
+}
+
+export async function lockBountyOnChain(
+  merkleRoot: string, 
+  amountEth: string, 
+  buyerPublicKey?: string,
+  contractAddress: string = DEFAULT_ZEROVAULT_ADDRESS
+) {
   const contract = await getZeroVaultContract(contractAddress, true);
   if (!contract) throw new Error('Web3 wallet not connected. Please install MetaMask.');
 
+  const provider = await getWeb3Provider();
+  let pubKey = buyerPublicKey;
+  if (!pubKey && provider) {
+    pubKey = await getOrRegisterBuyerPublicKey(provider);
+  }
+  if (!pubKey) {
+    throw new Error('Failed to obtain buyer secp256k1 public key for ECIES encryption.');
+  }
+
   const formattedRoot = merkleRoot.startsWith('0x') ? merkleRoot : `0x${merkleRoot}`;
-  const tx = await contract.lockBounty(formattedRoot, { value: parseEther(amountEth) });
+  const tx = await contract.lockBounty(formattedRoot, pubKey, { value: parseEther(amountEth) });
   const receipt = await tx.wait();
   if (receipt && receipt.status === 0) throw new Error("Transaction reverted on-chain (lockBounty).");
   return receipt;
 }
 
-export async function revealAndClaimOnChain(merkleRoot: string, decryptionKey: string, contractAddress: string = DEFAULT_ZEROVAULT_ADDRESS) {
+export async function revealAndClaimOnChain(
+  merkleRoot: string, 
+  decryptionKey: string,
+  encryptedKeyForBuyer: string, 
+  contractAddress: string = DEFAULT_ZEROVAULT_ADDRESS
+) {
   const contract = await getZeroVaultContract(contractAddress, true);
   if (!contract) throw new Error('Web3 wallet not connected. Please install MetaMask.');
 
   const formattedRoot = merkleRoot.startsWith('0x') ? merkleRoot : `0x${merkleRoot}`;
   const normalizedKey = normalizeHexKey(decryptionKey);
-  const tx = await contract.revealAndClaim(formattedRoot, normalizedKey);
+  const keyBytes = normalizedKey.startsWith('0x') ? normalizedKey : `0x${normalizedKey}`;
+  const formattedEncryptedKey = encryptedKeyForBuyer.startsWith('0x') ? encryptedKeyForBuyer : `0x${encryptedKeyForBuyer}`;
+  const tx = await contract.revealAndClaim(formattedRoot, keyBytes, formattedEncryptedKey);
   const receipt = await tx.wait();
   if (receipt && receipt.status === 0) throw new Error("Transaction reverted on-chain (revealAndClaim).");
   return receipt;
@@ -196,17 +243,39 @@ export function normalizeHexKey(key: string): string {
 }
 
 export function computeKeyHash(key: string): string {
-  return keccak256(toUtf8Bytes(normalizeHexKey(key))).toLowerCase();
+  const cleanKey = normalizeHexKey(key);
+  const hex = cleanKey.startsWith('0x') ? cleanKey : `0x${cleanKey}`;
+  if (isHexString(hex, 32)) {
+    return keccak256(getBytes(hex)).toLowerCase();
+  }
+  return keccak256(toUtf8Bytes(cleanKey)).toLowerCase();
 }
 
-export async function commitVulnerabilityOnChain(merkleRoot: string, keyHash: string, vendorAddress: string, contractAddress: string = DEFAULT_ZEROVAULT_ADDRESS) {
+export async function commitVulnerabilityOnChain(
+  merkleRoot: string, 
+  keyHash: string, 
+  vendorAddress: string, 
+  askingPriceEth: string = "0.001",
+  ipfsHash: string = "0x" + "00".repeat(32),
+  contractAddress: string = DEFAULT_ZEROVAULT_ADDRESS
+) {
   const contract = await getZeroVaultContract(contractAddress, true);
   if (!contract) throw new Error('Web3 wallet not connected. Please install MetaMask.');
 
   const formattedRoot = merkleRoot.startsWith('0x') ? merkleRoot : `0x${merkleRoot}`;
   const formattedKeyHash = keyHash.startsWith('0x') ? keyHash : `0x${keyHash}`;
+  const formattedIpfsHash = ipfsHash.startsWith('0x') && ipfsHash.length === 66 
+    ? ipfsHash 
+    : keccak256(toUtf8Bytes(ipfsHash || "default_ipfs"));
+  const askingPriceWei = parseEther(askingPriceEth || "0.001");
 
-  const tx = await contract.commitVulnerability(formattedRoot, formattedKeyHash, vendorAddress);
+  const tx = await contract.commitVulnerability(
+    formattedRoot, 
+    formattedKeyHash, 
+    vendorAddress,
+    askingPriceWei,
+    formattedIpfsHash
+  );
   const receipt = await tx.wait();
   if (receipt && receipt.status === 0) throw new Error("Transaction reverted on-chain (commitVulnerability).");
   return receipt;
@@ -252,6 +321,21 @@ export async function getContractPausedState(contractAddress: string = DEFAULT_Z
   }
 }
 
+export async function getActiveLockElapsedOnChain(
+  merkleRoot: string, 
+  contractAddress: string = DEFAULT_ZEROVAULT_ADDRESS
+): Promise<number> {
+  try {
+    const contract = await getZeroVaultContract(contractAddress, false);
+    if (!contract) return 0;
+    const formattedRoot = merkleRoot.startsWith('0x') ? merkleRoot : `0x${merkleRoot}`;
+    const elapsed = await contract.getActiveLockElapsed(formattedRoot);
+    return Number(elapsed);
+  } catch {
+    return 0;
+  }
+}
+
 export async function getKYCStatus(userAddress: string, contractAddress: string = DEFAULT_ZEROVAULT_ADDRESS): Promise<boolean> {
   try {
     const contract = await getZeroVaultContract(contractAddress, false);
@@ -281,19 +365,22 @@ export function formatContractError(err: any): string {
     return "Unauthorized: Only the designated buyer or seller can perform this transaction.";
   }
   if (errStr.includes("0x76d4e1e8") || errStr.includes("invalidkey")) {
-    return "Transaction reverted: Submitted decryption key does not match the on-chain key hash.";
+    return "Transaction reverted: Invalid key formatting or key length.";
   }
   if (errStr.includes("0x9b0056ac") || errStr.includes("timeoutnotreached")) {
-    return "Transaction reverted: The required timeout period has not elapsed yet.";
+    return "Transaction reverted: The required active timeout period has not elapsed yet (pause time is discounted).";
+  }
+  if (errStr.includes("0x199ff9ab") || errStr.includes("reclaimtimeoutpassed")) {
+    return "Transaction reverted: The 14-day seller claim window has expired.";
   }
   if (errStr.includes("0x2c5211c6") || errStr.includes("invalidamount")) {
-    return "Transaction reverted: Bounty amount must be at least 0.001 ETH.";
+    return "Transaction reverted: Bounty deposit must be greater than or equal to the seller's asking price (minimum 0.001 ETH).";
   }
   if (errStr.includes("0xed778779") || errStr.includes("escrowalreadyexists")) {
     return "Transaction reverted: An escrow with this Merkle root has already been committed.";
   }
   if (errStr.includes("invalidhash")) {
-    return "Transaction reverted: Merkle root or key hash cannot be zero (InvalidHash).";
+    return "Transaction reverted: Merkle root, key hash, or IPFS hash cannot be zero (InvalidHash).";
   }
   if (errStr.includes("bad_data") || errStr.includes("could not decode") || errStr.includes("value=\"0x\"")) {
     return "Contract Error: No contract bytecode found at the configured address. Please ensure the local hardhat node has contracts deployed.";

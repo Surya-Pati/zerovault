@@ -3,11 +3,11 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import Navigation from "@/components/Navigation";
-import { ArrowLeft, Copy, Check, Terminal as TerminalIcon, ShieldAlert, Clock, User, Share2, Eye, Lock } from "lucide-react";
+import { ArrowLeft, Copy, Check, Terminal as TerminalIcon, ShieldAlert, ShieldCheck, Clock, User, Share2, Eye, Lock } from "lucide-react";
 import EscrowProgressStepper, { EscrowStage } from "@/components/EscrowProgressStepper";
 import MerkleProofModal from "@/components/MerkleProofModal";
 import { PayloadDecryptor } from "@/components/PayloadDecryptor";
-import { DisclosureClaim } from "@zerovault/shared/dist/merkle";
+import { DisclosureClaim, normalizePayload } from "@/lib/crypto";
 import { fetchApi } from "@/lib/api";
 import { fetchOnChainEscrow } from "@/lib/contracts";
 import { useAuth } from "@/providers/AuthProvider";
@@ -222,7 +222,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
     );
   }
 
-  const effectiveClaims: DisclosureClaim[] =
+  const effectiveClaims: DisclosureClaim[] = normalizePayload(
     listing.claims && listing.claims.length > 0
       ? listing.claims
       : [
@@ -230,7 +230,8 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
           { key: "category", value: listing.category },
           { key: "severity", value: listing.severity },
           { key: "cve", value: "CVE-2026-ZERO" },
-        ];
+        ]
+  );
 
   return (
     <div className="min-h-screen bg-[#0C0E12] text-[#F0F2F5] flex flex-col">
@@ -343,9 +344,10 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
                     setActiveModalIndex(0);
                     setIsProofModalOpen(true);
                   }}
-                  className="px-3 py-1.5 rounded border border-cyan-500/40 bg-cyan-950/30 hover:bg-cyan-900/40 text-cyan-300 font-mono text-xs transition-colors flex items-center gap-1.5 shrink-0"
+                  className="px-3 py-1.5 rounded border border-[#232732] bg-[#14171E] hover:border-[#3B4252] text-[#F0F2F5] font-mono text-xs transition-colors flex items-center gap-1.5 shrink-0"
                 >
-                  <span>Open Workbench Modal</span>
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#16A34A]" />
+                  <span>Open Workbench</span>
                 </button>
                 <span className="font-mono text-xs text-[#848B98]">
                   {effectiveClaims.length} Leaves

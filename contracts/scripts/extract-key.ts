@@ -9,13 +9,19 @@ async function main() {
   }
   console.log("Tx data:", tx.data);
   
-  // The ABI is: revealAndClaim(bytes32 merkleRoot, string calldata decryptionKey)
-  // We can decode this using the interface
-  const ABI = ["function revealAndClaim(bytes32 merkleRoot, string calldata decryptionKey)"];
+  // The v2 ABI is: revealAndClaim(bytes32 merkleRoot, bytes calldata decryptionKey, bytes calldata encryptedKeyForBuyer)
+  // v1 ABI fallback: revealAndClaim(bytes32 merkleRoot, string calldata decryptionKey)
+  const ABI = [
+    "function revealAndClaim(bytes32 merkleRoot, bytes calldata decryptionKey, bytes calldata encryptedKeyForBuyer)",
+    "function revealAndClaim(bytes32 merkleRoot, string calldata decryptionKey)"
+  ];
   const iface = new ethers.Interface(ABI);
   try {
     const decoded = iface.decodeFunctionData("revealAndClaim", tx.data);
     console.log("Decryption Key from tx:", decoded.decryptionKey);
+    if (decoded.encryptedKeyForBuyer) {
+      console.log("Encrypted Key for Buyer:", decoded.encryptedKeyForBuyer);
+    }
   } catch (err) {
     console.log("Could not decode:", err);
   }

@@ -16,9 +16,10 @@ export default function HomePage() {
   const sampleValue = tampered 
     ? "CWE-89: SQL Injection (Tampered Claim)" 
     : "CWE-787: Out-of-bounds Write in HTTP/2 Parser";
+  const sampleSalt = "0x7777777777777777777777777777777777777777777777777777777777777777";
 
   // Precalculated authentic proof nodes for the sample tree
-  const sampleLeafHash = hashLeaf(sampleKey, sampleValue);
+  const sampleLeafHash = hashLeaf(sampleKey, sampleValue, sampleSalt);
   const sampleSibling1 = "0x16cad4358a1fd669804ede36322ce2e871fd4e60d3579ca7390fdaa3888e1fec";
   const sampleSibling2 = "0x44d3de99cf4347d3533f8cb401d6d752045d4972afcd88850f28c72ce74340aa";
   

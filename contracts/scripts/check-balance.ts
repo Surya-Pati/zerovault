@@ -1,27 +1,39 @@
 import { ethers } from "hardhat";
+import * as dotenv from "dotenv";
+import * as path from "path";
+
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
 async function main() {
-  const sellerAddress = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
-  const contractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+  const [signer] = await ethers.getSigners();
+  const contractAddress = process.env.ZEROVAULT_CONTRACT_ADDRESS || "0x66AfE225958aF56E6fB99995897ED3EF17013185";
+  const userWallet = "0x7e627b8eb7f129719da32e315a20b0f39a1e4bc9";
   
-  const sellerBalance = await ethers.provider.getBalance(sellerAddress);
+  const signerBalance = await ethers.provider.getBalance(signer.address);
   const contractBalance = await ethers.provider.getBalance(contractAddress);
+  const userBalance = await ethers.provider.getBalance(userWallet);
   
-  console.log("Seller ETH Balance:", ethers.formatEther(sellerBalance));
-  console.log("Contract ETH Balance:", ethers.formatEther(contractBalance));
-  
-  // Let's also check the escrow state just in case it wasn't settled
-  const { PrismaClient } = require('@prisma/client');
-  const prisma = new PrismaClient();
-  const listing = await prisma.vulnerabilityListing.findFirst({
-    where: { id: "fa94b355-2dd1-419c-a5fc-f9ed244db099" }
-  });
-  
-  if (listing) {
-    const ZeroVault = await ethers.getContractAt("ZeroVault", contractAddress);
-    const escrow = await ZeroVault.escrows(listing.merkle_root);
-    console.log("Escrow on-chain state:", Number(escrow.state));
-    console.log("Escrow on-chain bountyAmount:", ethers.formatEther(escrow.bountyAmount));
+  console.log("==================================================");
+  console.log("  ZeroVault Network & Balance Diagnostic");
+  console.log("==================================================");
+  console.log("Network Name:    ", (await ethers.provider.getNetwork()).name);
+  console.log("Network ChainId: ", (await ethers.provider.getNetwork()).chainId.toString());
+  console.log("Signer Address:  ", signer.address);
+  console.log("Signer Balance:  ", ethers.formatEther(signerBalance), "ETH");
+  console.log("Contract Address:", contractAddress);
+  console.log("Contract Balance:", ethers.formatEther(contractBalance), "ETH");
+  console.log("User Wallet:     ", userWallet);
+  console.log("User Balance:    ", ethers.formatEther(userBalance), "ETH");
+
+  const code = await ethers.provider.getCode(contractAddress);
+  console.log("Contract Bytecode Present:", code !== "0x");
+
+  if (code !== "0x") {
+    const vault = await ethers.getContractAt("ZeroVault", contractAddress);
+    const isSignerKyc = await vault.isKYCVerified(signer.address);
+    const isUserKyc = await vault.isKYCVerified(userWallet);
+    console.log("Signer KYC Status: ", isSignerKyc);
+    console.log("User KYC Status:   ", isUserKyc);
   }
 }
 

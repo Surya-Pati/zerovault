@@ -1,4 +1,5 @@
 import { webcrypto } from 'crypto';
+import { SigningKey, sha256, randomBytes } from 'ethers';
 
 export interface EncryptResult {
   ciphertext: string; // Base64 encoded ciphertext (including GCM tag)
@@ -197,4 +198,129 @@ export async function decryptPayload(params: DecryptParams): Promise<string> {
 
   const decoder = new TextDecoder();
   return decoder.decode(decryptedBuffer);
+}
+
+/**
+ * Encrypts a raw 32-byte AES key (hex string) for a buyer's secp256k1 public key using ECIES.
+ * 
+ * Algorithm:
+ * 1. Generates ephemeral secp256k1 keypair (e, E).
+ * 2. Computes ECDH shared point S = e * P_buyer.
+ * 3. Derives 256-bit symmetric key material K_derived = sha256(S).
+ * 4. Encrypts rawAesKey using AES-256-GCM with a random 12-byte IV.
+ * 5. Returns compact serialized payload:
+ *    0x || ephemeralPublicKey (33 bytes) || iv (12 bytes) || ciphertextAndTag (48 bytes)
+ *    Total: 93 bytes (186 hex chars + '0x')
+ * 
+ * @param buyerPublicKeyHex secp256k1 public key (33-byte compressed or 65-byte uncompressed)
+ * @param rawAesKeyHex 32-byte AES key in hex
+ * @returns 0x-prefixed hex string of the serialized ECIES payload
+ */
+export async function encryptECIES(buyerPublicKeyHex: string, rawAesKeyHex: string): Promise<string> {
+  const cryptoObj = getWebCrypto();
+  const cleanPubKey = buyerPublicKeyHex.trim().startsWith('0x')
+    ? buyerPublicKeyHex.trim()
+    : `0x${buyerPublicKeyHex.trim()}`;
+
+  const cleanAesKey = rawAesKeyHex.trim().startsWith('0x')
+    ? rawAesKeyHex.trim().slice(2)
+    : rawAesKeyHex.trim();
+
+  if (!/^[0-9a-fA-F]{64}$/.test(cleanAesKey)) {
+    throw new Error('Invalid rawAesKeyHex: must be a 32-byte hex string (64 characters)');
+  }
+
+  // 1. Ephemeral keypair
+  const ephemeralKey = new SigningKey(randomBytes(32));
+  const ephemeralPubKeyHex = ephemeralKey.compressedPublicKey; // 33 bytes hex with '0x'
+
+  // 2. ECDH Shared Secret
+  const sharedPoint = ephemeralKey.computeSharedSecret(cleanPubKey);
+  const derivedKeyHex = sha256(sharedPoint).slice(2);
+  const derivedKeyBuffer = hexToBuffer(derivedKeyHex);
+
+  // 3. AES-256-GCM Encryption
+  const ivArray = new Uint8Array(12);
+  cryptoObj.getRandomValues(ivArray);
+
+  const keyObj = await cryptoObj.subtle.importKey(
+    'raw',
+    derivedKeyBuffer,
+    { name: 'AES-GCM' },
+    false,
+    ['encrypt']
+  );
+
+  const rawKeyData = hexToBuffer(cleanAesKey);
+  const ciphertextBuffer = await cryptoObj.subtle.encrypt(
+    { name: 'AES-GCM', iv: ivArray },
+    keyObj,
+    rawKeyData
+  );
+
+  // 4. Compact Serialization:
+  // 33B (ephemeralPubKey) + 12B (iv) + 48B (ciphertext + tag) = 93 bytes
+  const serializedHex =
+    '0x' +
+    ephemeralPubKeyHex.slice(2) +
+    bufferToHex(ivArray) +
+    bufferToHex(new Uint8Array(ciphertextBuffer));
+
+  return serializedHex;
+}
+
+/**
+ * Decrypts an ECIES payload using the buyer's secp256k1 private key.
+ * 
+ * @param buyerPrivateKeyHex 32-byte secp256k1 private key
+ * @param serializedPayloadHex 0x-prefixed serialized ECIES hex string (93 bytes)
+ * @returns 64-character hex string of the original AES key
+ */
+export async function decryptECIES(
+  buyerPrivateKeyHex: string,
+  serializedPayloadHex: string
+): Promise<string> {
+  const cryptoObj = getWebCrypto();
+  const cleanPrivKey = buyerPrivateKeyHex.trim().startsWith('0x')
+    ? buyerPrivateKeyHex.trim()
+    : `0x${buyerPrivateKeyHex.trim()}`;
+
+  const cleanPayload = serializedPayloadHex.trim().startsWith('0x')
+    ? serializedPayloadHex.trim().slice(2)
+    : serializedPayloadHex.trim();
+
+  // Payload must be at least 33B (pubkey) + 12B (iv) + 16B (auth tag) = 61 bytes = 122 hex chars
+  if (cleanPayload.length < 122 || cleanPayload.length % 2 !== 0) {
+    throw new Error('Invalid ECIES payload: invalid length or format');
+  }
+
+  const rawBytes = new Uint8Array(hexToBuffer(cleanPayload));
+
+  // 33-byte compressed ephemeral public key
+  const ephemeralPubKeyHex = '0x' + bufferToHex(rawBytes.subarray(0, 33));
+  const ivBytes = rawBytes.subarray(33, 45);
+  const ciphertextBytes = rawBytes.subarray(45);
+
+  // 1. ECDH Shared Secret
+  const buyerKey = new SigningKey(cleanPrivKey);
+  const sharedPoint = buyerKey.computeSharedSecret(ephemeralPubKeyHex);
+  const derivedKeyHex = sha256(sharedPoint).slice(2);
+  const derivedKeyBuffer = hexToBuffer(derivedKeyHex);
+
+  // 2. AES-256-GCM Decryption
+  const keyObj = await cryptoObj.subtle.importKey(
+    'raw',
+    derivedKeyBuffer,
+    { name: 'AES-GCM' },
+    false,
+    ['decrypt']
+  );
+
+  const decryptedBuffer = await cryptoObj.subtle.decrypt(
+    { name: 'AES-GCM', iv: ivBytes },
+    keyObj,
+    ciphertextBytes
+  );
+
+  return bufferToHex(new Uint8Array(decryptedBuffer));
 }

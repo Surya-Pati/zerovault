@@ -5,13 +5,13 @@ import * as path from "path";
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
 async function main() {
-  const targetAddress = process.argv[2];
+  const targetAddress = process.env.TARGET_WALLET || process.argv[2] || "0x7e627b8eb7f129719da32e315a20b0f39a1e4bc9";
   if (!targetAddress || !ethers.isAddress(targetAddress)) {
     console.log("Usage: npx hardhat run scripts/whitelist-sepolia-buyer.ts --network sepolia <WALLET_ADDRESS>");
     process.exit(1);
   }
 
-  const contractAddress = process.env.ZEROVAULT_CONTRACT_ADDRESS || "0xd99501e8a7CE41fFb1DdEF4ca288B57Cf9966091";
+  const contractAddress = process.env.ZEROVAULT_CONTRACT_ADDRESS || "0x66AfE225958aF56E6fB99995897ED3EF17013185";
   const [signer] = await ethers.getSigners();
 
   console.log("==================================================");
@@ -30,7 +30,11 @@ async function main() {
   }
 
   console.log(`\nSubmitting setKYCStatus(${targetAddress}, true) to Sepolia...`);
-  const tx = await vault.setKYCStatus(targetAddress, true);
+  const tx = await vault.setKYCStatus(targetAddress, true, {
+    maxFeePerGas: ethers.parseUnits("0.2", "gwei"),
+    maxPriorityFeePerGas: ethers.parseUnits("0.05", "gwei"),
+    gasLimit: 120000,
+  });
   console.log("Transaction submitted:", tx.hash);
   console.log("Waiting for confirmation on Sepolia...");
   await tx.wait(1);

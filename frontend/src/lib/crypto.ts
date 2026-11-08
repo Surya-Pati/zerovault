@@ -17,4 +17,6 @@ export {
   type InclusionProof,
   encryptPayload,
   decryptPayload,
+  encryptECIES,
+  decryptECIES,
 } from '@zerovault/shared';
