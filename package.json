@@ -17,6 +17,6 @@
     "fund:sepolia": "npm --prefix contracts run fund:sepolia"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^10.0.6"
   }
 }
