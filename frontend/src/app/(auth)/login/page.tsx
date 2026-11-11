@@ -1,179 +1,193 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { BrowserProvider } from "ethers";
+import Navigation from "@/components/Navigation";
+import {
+  Lock,
+  Wallet,
+  AlertCircle,
+  ArrowLeft,
+  ShieldCheck
+} from "lucide-react";
+import { BrowserProvider, Signer } from "ethers";
 import { SiweMessage } from "siwe";
-import { API_URL, fetchApi } from "@/lib/api";
+import { fetchApi } from "@/lib/api";
 import { useAuth } from "@/providers/AuthProvider";
+import { EXPECTED_NETWORK_NAME } from "@/lib/contracts";
 
 export default function LoginPage() {
   const router = useRouter();
   const { refreshUser } = useAuth();
-  const [error, setError] = useState("");
-  const [isWeb3Loading, setIsWeb3Loading] = useState(false);
+  const [error, setError] = useState<string>("");
+  const [isWeb3Loading, setIsWeb3Loading] = useState<boolean>(false);
+
+  const executeSiweLogin = async (
+    signer: Signer,
+    walletAddress: string,
+    chainId: number
+  ) => {
+    // 1. Fetch secure nonce
+    const nonceRes = await fetchApi("/auth/nonce");
+    if (!nonceRes.ok) throw new Error("Failed to obtain secure authentication nonce.");
+    const nonce = await nonceRes.text();
+
+    // 2. Prepare SIWE message
+    const message = new SiweMessage({
+      domain: window.location.host,
+      address: walletAddress,
+      statement: "Sign in to ZeroVault Protocol",
+      uri: window.location.origin,
+      version: "1",
+      chainId,
+      nonce
+    });
+    const preparedMessage = message.prepareMessage();
+
+    // 3. Sign message in wallet
+    const signature = await signer.signMessage(preparedMessage);
+
+    // 4. Verify signature on backend
+    const verifyRes = await fetchApi("/auth/verify-siwe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: preparedMessage, signature })
+    });
+
+    const data = await verifyRes.json();
+    if (!verifyRes.ok) throw new Error(data.error || "Web3 authentication failed.");
+
+    await refreshUser();
+    if (data?.user?.role === "ADMIN") {
+      router.push("/admin");
+    } else {
+      router.push("/listings");
+    }
+  };
 
   const handleWeb3Login = async () => {
-    if (typeof window.ethereum === 'undefined') {
-      setError("Web3 wallet not detected. Please install MetaMask.");
+    if (typeof window === "undefined" || !window.ethereum) {
+      setError("Web3 wallet not detected. Please install MetaMask to authenticate.");
       return;
     }
-    
+
     setIsWeb3Loading(true);
     setError("");
 
     try {
       const provider = new BrowserProvider(window.ethereum);
-      await provider.send('eth_requestAccounts', []);
+      await provider.send("eth_requestAccounts", []);
       const signer = await provider.getSigner();
       const walletAddress = await signer.getAddress();
-      const chainId = Number((await provider.getNetwork()).chainId);
+      const network = await provider.getNetwork();
+      const chainId = Number(network.chainId);
 
-      // 1. Get Nonce via fetchApi
-      const nonceRes = await fetchApi('/auth/nonce');
-      if (!nonceRes.ok) throw new Error("Failed to fetch secure nonce");
-      const nonce = await nonceRes.text();
-
-      // 2. Create SIWE message
-      const message = new SiweMessage({
-        domain: window.location.host,
-        address: walletAddress,
-        statement: `Sign in to ZeroVault`,
-        uri: window.location.origin,
-        version: "1",
-        chainId,
-        nonce,
-      });
-
-      const preparedMessage = message.prepareMessage();
-      
-      // 3. Sign message
-      const signature = await signer.signMessage(preparedMessage);
-
-      // 4. Verify & Login
-      const verifyRes = await fetchApi('/auth/verify-siwe', {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: preparedMessage, signature }),
-      });
-
-      let data;
-      try {
-        data = await verifyRes.json();
-      } catch (parseErr) {
-        throw new Error("Server returned an invalid response (not JSON)");
-      }
-      
-      if (!verifyRes.ok) throw new Error(data.error || "Web3 login failed");
-      
-      await refreshUser();
-      if (data?.user?.role === 'ADMIN') {
-        router.push("/admin");
-      } else {
-        router.push("/");
-      }
+      await executeSiweLogin(signer, walletAddress, chainId);
     } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message);
+      const errorObj = err as { code?: string | number; message?: string };
+      if (errorObj?.code === "ACTION_REJECTED" || errorObj?.code === 4001) {
+        setError("Signature request rejected in wallet.");
       } else {
-        setError("Web3 login failed");
+        setError(errorObj?.message || "Web3 authentication failed.");
       }
     } finally {
       setIsWeb3Loading(false);
     }
   };
 
-  const containerVariants = {
-    hidden: { opacity: 0, y: 30, scale: 0.95 },
-    visible: { 
-      opacity: 1, 
-      y: 0, 
-      scale: 1,
-      transition: { type: "spring" as const, stiffness: 100, damping: 20, staggerChildren: 0.1 }
-    }
-  };
-
-  const itemVariants = {
-    hidden: { opacity: 0, y: 15 },
-    visible: { opacity: 1, y: 0, transition: { type: "spring" as const, stiffness: 100, damping: 20 } }
-  };
-
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative z-10">
-      <motion.div 
-        variants={containerVariants} 
-        initial="hidden" 
-        animate="visible"
-        className="w-full max-w-md"
-      >
-        <Card className="bg-black/60 backdrop-blur-2xl border-white/10 shadow-[0_0_60px_rgba(0,255,255,0.1)] rounded-2xl overflow-hidden relative">
-          <div className="absolute top-0 inset-x-0 h-[1px] bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent" />
-          
-          <CardHeader className="space-y-4 pb-6 pt-10 flex flex-col items-center text-center">
-            <motion.div variants={itemVariants} className="w-14 h-14 bg-gradient-to-br from-cyan-500/20 to-indigo-500/20 rounded-2xl flex items-center justify-center border border-white/5 mb-2 shadow-inner">
-              <svg className="w-7 h-7 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-              </svg>
-            </motion.div>
-            <motion.div variants={itemVariants}>
-              <CardTitle className="text-3xl font-heading font-medium tracking-tight text-white mb-2">Authenticate Protocol</CardTitle>
-              <CardDescription className="text-slate-400 text-sm max-w-[250px] mx-auto leading-relaxed">
-                Access your secure network identity and verify clearance.
-              </CardDescription>
-            </motion.div>
-          </CardHeader>
+    <div className="min-h-screen bg-[#0C0E12] text-[#F0F2F5] flex flex-col">
+      <Navigation />
 
-          <CardContent className="space-y-6 px-8">
-            <motion.div variants={itemVariants} className="pt-2">
-              <Button 
-                type="button" 
-                onClick={handleWeb3Login}
-                disabled={isWeb3Loading}
-                className="w-full h-12 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 border border-cyan-500/50 font-heading text-sm tracking-widest uppercase transition-all duration-300 rounded-xl flex items-center justify-center gap-2"
-              >
-                {isWeb3Loading ? (
-                  <span className="w-4 h-4 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" />
-                ) : (
-                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M21 12V7C21 5.89543 20.1046 5 19 5H5C3.89543 5 3 5.89543 3 7V17C3 18.1046 3.89543 19 5 19H19C20.1046 19 21 18.1046 21 17V12ZM21 12H15C13.8954 12 13 11.1046 13 10C13 8.89543 13.8954 8 15 8H21V12ZM17 10H15V11H17V10Z" fill="currentColor"/>
-                  </svg>
-                )}
-                {isWeb3Loading ? "Authenticating..." : "Connect Web3 Wallet"}
-              </Button>
-            </motion.div>
-            
-            <AnimatePresence>
-              {error && (
-                <motion.div 
-                  initial={{ opacity: 0, height: 0, marginTop: 0 }}
-                  animate={{ opacity: 1, height: "auto", marginTop: 16 }}
-                  exit={{ opacity: 0, height: 0, marginTop: 0 }}
-                  className="overflow-hidden"
-                >
-                  <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl">
-                    <p className="text-xs font-medium text-red-400 font-mono flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
-                      {error}
-                    </p>
-                  </div>
-                </motion.div>
+      <main className="flex-1 max-w-lg w-full mx-auto px-4 py-12 sm:py-20 flex flex-col justify-center">
+        {/* Breadcrumb back to marketplace */}
+        <div className="mb-6 font-mono text-xs">
+          <Link
+            href="/listings"
+            className="inline-flex items-center gap-2 text-[#848B98] hover:text-[#F0F2F5] transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Return to Marketplace</span>
+          </Link>
+        </div>
+
+        {/* Authentication Card */}
+        <div className="rounded border border-[#232732] bg-[#14171E] p-6 sm:p-8 space-y-6">
+          {/* Card Header */}
+          <div className="space-y-2 text-center">
+            <div className="w-12 h-12 rounded border border-[#232732] bg-[#0C0E12] mx-auto flex items-center justify-center text-[#2563EB] mb-3">
+              <Lock className="w-6 h-6" />
+            </div>
+
+            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded border border-[#232732] bg-[#0C0E12] font-mono text-[11px] text-[#848B98]">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#16A34A]" />
+              <span>{EXPECTED_NETWORK_NAME}</span>
+            </div>
+
+            <h1 className="text-2xl font-semibold tracking-tight text-[#F0F2F5] font-sans">
+              Authenticate Protocol Session
+            </h1>
+            <p className="text-xs text-[#848B98] font-sans leading-relaxed max-w-sm mx-auto">
+              Sign in with your Ethereum wallet using EIP-4361 (Sign-In with Ethereum). No passwords or private keys required.
+            </p>
+          </div>
+
+          {/* Error Banner */}
+          {error && (
+            <div
+              role="alert"
+              className="p-3.5 rounded border border-[#DC2626]/40 bg-[#170E10] text-[#DC2626] font-mono text-xs flex items-center gap-2.5"
+            >
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {/* Action Button */}
+          <div className="space-y-3 pt-2">
+            <button
+              type="button"
+              onClick={handleWeb3Login}
+              disabled={isWeb3Loading}
+              className="w-full h-11 px-4 rounded bg-[#2563EB] hover:bg-[#1D4ED8] text-white font-mono text-xs font-semibold inline-flex items-center justify-center gap-2.5 transition-colors disabled:opacity-50"
+            >
+              {isWeb3Loading ? (
+                <>
+                  <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                  <span>Requesting Wallet Signature...</span>
+                </>
+              ) : (
+                <>
+                  <Wallet className="w-4 h-4" />
+                  <span>Connect & Sign in with Ethereum</span>
+                </>
               )}
-            </AnimatePresence>
-          </CardContent>
-          
-          <CardFooter className="flex flex-col gap-6 pt-2 pb-10 px-8">
-            <motion.p variants={itemVariants} className="text-[11px] text-slate-500 font-mono tracking-wide text-center">
-              No session?{" "}
-              <a href="/register" className="text-cyan-400 hover:text-cyan-300 hover:underline underline-offset-4 transition-colors">
-                Initialize &rarr;
-              </a>
-            </motion.p>
-          </CardFooter>
-        </Card>
-      </motion.div>
+            </button>
+
+            <div className="p-3 rounded border border-[#232732] bg-[#0C0E12] text-[11px] font-mono text-[#848B98] space-y-1">
+              <div className="flex items-center gap-1.5 text-[#F0F2F5]">
+                <ShieldCheck className="w-3.5 h-3.5 text-[#16A34A]" />
+                <span className="font-medium">Cryptographic Handshake</span>
+              </div>
+              <p className="leading-relaxed">
+                ZeroVault verifies your signature off-chain and issues a strictly scoped, HTTP-only session cookie.
+              </p>
+            </div>
+          </div>
+
+          {/* Footer Links */}
+          <div className="border-t border-[#232732] pt-5 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-mono text-[#848B98]">
+            <span>Don&apos;t have an identity registered?</span>
+            <Link
+              href="/register"
+              className="text-[#2563EB] hover:text-[#3B82F6] hover:underline transition-colors font-medium"
+            >
+              Register Clearance &rarr;
+            </Link>
+          </div>
+        </div>
+      </main>
     </div>
   );
 }
