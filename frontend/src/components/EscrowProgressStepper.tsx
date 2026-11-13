@@ -204,7 +204,7 @@ export default function EscrowProgressStepper({
 
       setTxState({
         isLoading: false,
-        error: err.message || "Web3 transaction failed.",
+        error: formatContractError(err),
       });
     }
   };

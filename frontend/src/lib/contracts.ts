@@ -256,7 +256,7 @@ export async function commitVulnerabilityOnChain(
   keyHash: string, 
   vendorAddress: string, 
   askingPriceEth: string = "0.001",
-  ipfsHash: string = "0x" + "00".repeat(32),
+  ipfsHash?: string,
   contractAddress: string = DEFAULT_ZEROVAULT_ADDRESS
 ) {
   const contract = await getZeroVaultContract(contractAddress, true);
@@ -264,9 +264,20 @@ export async function commitVulnerabilityOnChain(
 
   const formattedRoot = merkleRoot.startsWith('0x') ? merkleRoot : `0x${merkleRoot}`;
   const formattedKeyHash = keyHash.startsWith('0x') ? keyHash : `0x${keyHash}`;
-  const formattedIpfsHash = ipfsHash.startsWith('0x') && ipfsHash.length === 66 
-    ? ipfsHash 
-    : keccak256(toUtf8Bytes(ipfsHash || "default_ipfs"));
+
+  // ZeroVault v2 enforces `ipfsHash != bytes32(0)` (reverting with InvalidHash 0x0af806e0).
+  // If no explicit IPFS hash is provided or if it's all zeros, generate a deterministic non-zero digest from the Merkle root.
+  const isZeroOrEmpty =
+    !ipfsHash ||
+    ipfsHash === "0x" + "00".repeat(32) ||
+    ipfsHash === "0x0" ||
+    ipfsHash === "0x" ||
+    /^0x0+$/.test(ipfsHash);
+
+  const formattedIpfsHash = !isZeroOrEmpty && ipfsHash.startsWith('0x') && ipfsHash.length === 66
+    ? ipfsHash
+    : keccak256(toUtf8Bytes(ipfsHash && !isZeroOrEmpty ? ipfsHash : `zerovault://payload/${formattedRoot}`));
+
   const askingPriceWei = parseEther(askingPriceEth || "0.001");
 
   const tx = await contract.commitVulnerability(
@@ -379,8 +390,8 @@ export function formatContractError(err: any): string {
   if (errStr.includes("0xed778779") || errStr.includes("escrowalreadyexists")) {
     return "Transaction reverted: An escrow with this Merkle root has already been committed.";
   }
-  if (errStr.includes("invalidhash")) {
-    return "Transaction reverted: Merkle root, key hash, or IPFS hash cannot be zero (InvalidHash).";
+  if (errStr.includes("0x0af806e0") || errStr.includes("invalidhash")) {
+    return "Transaction reverted: Merkle root, key hash, or IPFS payload hash cannot be zero (InvalidHash).";
   }
   if (errStr.includes("bad_data") || errStr.includes("could not decode") || errStr.includes("value=\"0x\"")) {
     return "Contract Error: No contract bytecode found at the configured address. Please ensure the local hardhat node has contracts deployed.";
