@@ -7,7 +7,7 @@ import { ArrowLeft, Copy, Check, Terminal as TerminalIcon, ShieldAlert, ShieldCh
 import EscrowProgressStepper, { EscrowStage } from "@/components/EscrowProgressStepper";
 import MerkleProofModal from "@/components/MerkleProofModal";
 import { PayloadDecryptor } from "@/components/PayloadDecryptor";
-import { DisclosureClaim, normalizePayload } from "@/lib/crypto";
+import { DisclosureClaim, RawDisclosureClaim, normalizePayload } from "@/lib/crypto";
 import { fetchApi } from "@/lib/api";
 import { fetchOnChainEscrow } from "@/lib/contracts";
 import { useAuth } from "@/providers/AuthProvider";
@@ -222,16 +222,23 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
     );
   }
 
-  const effectiveClaims: DisclosureClaim[] = normalizePayload(
-    listing.claims && listing.claims.length > 0
-      ? listing.claims
-      : [
-          { key: "title", value: listing.title },
-          { key: "category", value: listing.category },
-          { key: "severity", value: listing.severity },
-          { key: "cve", value: "CVE-2026-ZERO" },
-        ]
-  );
+  // Map authentic disclosure claims preserving their canonical salts and sibling proofs.
+  // We avoid normalizePayload here because it generates random synthetic salts for un-salted claims,
+  // which would corrupt verification against the committed on-chain Merkle root.
+  const effectiveClaims: DisclosureClaim[] = (listing.claims && listing.claims.length > 0)
+    ? listing.claims.map((c: RawDisclosureClaim | DisclosureClaim) => ({
+        key: c.key || "",
+        value: c.value || "",
+        salt: c.salt || "",
+        proof: Array.isArray(c.proof) ? [...c.proof] : [],
+        revealed: c.revealed ?? true,
+      }))
+    : normalizePayload([
+        { key: "title", value: listing.title },
+        { key: "category", value: listing.category },
+        { key: "severity", value: listing.severity },
+        { key: "cve", value: "CVE-2026-ZERO" },
+      ]);
 
   return (
     <div className="min-h-screen bg-[#0C0E12] text-[#F0F2F5] flex flex-col">

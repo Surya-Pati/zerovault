@@ -139,6 +139,15 @@ export default function MerkleProofViewer({
     setTimeout(() => setCopiedField(null), 2000);
   };
 
+  const getSafeLeafHash = (key: string, value: string, salt?: string) => {
+    try {
+      if (!salt) return "(Missing salt)";
+      return hashLeaf(key.trim(), value.trim(), salt);
+    } catch {
+      return "(Invalid salt/leaf)";
+    }
+  };
+
   // Perform cryptographic proof verification locally using Keccak-256
   const handleVerify = () => {
     setVerificationResult({
@@ -308,7 +317,7 @@ export default function MerkleProofViewer({
           <div className="p-3 space-y-2 max-h-[500px] overflow-y-auto">
             {filteredClaims.map((claim, idx) => {
               const originalIndex = initialClaims.indexOf(claim);
-              const leafHash = hashLeaf(claim.key?.trim() || "", claim.value?.trim() || "", (claim as any)?.salt);
+              const leafHash = getSafeLeafHash(claim.key || "", claim.value || "", (claim as any)?.salt);
               const isSelected = selectedLeafIndex === originalIndex;
 
               return (
@@ -552,8 +561,8 @@ export default function MerkleProofViewer({
               <span className="text-[#64748B] text-[10px] uppercase tracking-wider">
                 Computed Leaf Hash:
               </span>
-              <span className="text-[#F1F5F9] font-semibold truncate max-w-[260px] sm:max-w-[340px]" title={hashLeaf(claimKey.trim(), claimValue.trim(), (initialClaims[selectedLeafIndex] as any)?.salt)}>
-                {hashLeaf(claimKey.trim(), claimValue.trim(), (initialClaims[selectedLeafIndex] as any)?.salt)}
+              <span className="text-[#F1F5F9] font-semibold truncate max-w-[260px] sm:max-w-[340px]" title={getSafeLeafHash(claimKey, claimValue, (initialClaims[selectedLeafIndex] as any)?.salt)}>
+                {getSafeLeafHash(claimKey, claimValue, (initialClaims[selectedLeafIndex] as any)?.salt)}
               </span>
             </div>
 

@@ -12,6 +12,7 @@ export {
   normalizePayload,
   keccak256Hash,
   type DisclosureClaim,
+  type RawDisclosureClaim,
   type DisclosurePayloadInput,
   type MerkleResult,
   type InclusionProof,

@@ -5,12 +5,16 @@ export interface DisclosureClaim {
   key: string;
   value: string;
   salt: string; // 0x-prefixed 32-byte hex salt for pre-image dictionary protection (MANDATORY)
+  proof?: string[];
+  revealed?: boolean;
 }
 
 export interface RawDisclosureClaim {
   key: string;
   value: string;
   salt?: string;
+  proof?: string[];
+  revealed?: boolean;
 }
 
 export type DisclosurePayloadInput = (DisclosureClaim | RawDisclosureClaim)[] | Record<string, string>;
@@ -88,6 +92,8 @@ export function normalizePayload(input: DisclosurePayloadInput): DisclosureClaim
         salt: hasValidSalt
           ? (item.salt!.startsWith('0x') ? item.salt! : `0x${item.salt}`)
           : generateClaimSalt(),
+        ...(Array.isArray(item.proof) ? { proof: [...item.proof] } : {}),
+        ...(item.revealed !== undefined ? { revealed: item.revealed } : {}),
       };
     });
   }
