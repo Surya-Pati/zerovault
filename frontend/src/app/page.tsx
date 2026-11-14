@@ -3,15 +3,17 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import Navigation from "@/components/Navigation";
-import { Shield, CheckCircle2, XCircle, ArrowUpRight, Lock, Key, FileCheck, Layers } from "lucide-react";
+import { Shield, CheckCircle2, XCircle, ArrowUpRight, Lock, Key, FileCheck, Layers, Info } from "lucide-react";
 import { hashLeaf, verifyProof } from "@/lib/crypto";
 import { useAuth } from "@/providers/AuthProvider";
+import MerkleEvaluationInfoModal from "@/components/MerkleEvaluationInfoModal";
 
 export default function HomePage() {
   const { user } = useAuth();
 
   // Interactive Merkle Proof trace state
   const [tampered, setTampered] = useState(false);
+  const [showInfoModal, setShowInfoModal] = useState(false);
   const sampleKey = "cwe";
   const sampleValue = tampered 
     ? "CWE-89: SQL Injection (Tampered Claim)" 
@@ -120,8 +122,25 @@ export default function HomePage() {
                   </div>
                 </div>
 
-                <div className="p-3 rounded border border-[#232732] bg-[#0C0E12] space-y-1">
-                  <span className="text-[10px] text-[#848B98] uppercase">1. Evaluated Leaf Hash</span>
+                <div 
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setShowInfoModal(true)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setShowInfoModal(true);
+                    }
+                  }}
+                  className="p-3 rounded border border-[#232732] bg-[#0C0E12] space-y-1 cursor-pointer hover:border-[#10B981]/50 transition-colors group relative focus:outline-none focus:ring-1 focus:ring-[#10B981]"
+                  title="Click to view cryptographic leaf evaluation info"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-[#848B98] uppercase">1. Evaluated Leaf Hash</span>
+                    <span className="text-[10px] text-[#10B981] group-hover:underline flex items-center gap-1 font-mono">
+                      <Info className="w-3 h-3" /> Info
+                    </span>
+                  </div>
                   <div className="text-[#F0F2F5] text-[11px] truncate">
                     keccak256(claim + salt) =
                   </div>
@@ -246,6 +265,20 @@ export default function HomePage() {
           <div>Audit-Grade Verification Protocol</div>
         </div>
       </footer>
+
+      {/* Cryptographic Leaf Evaluation Info Modal */}
+      <MerkleEvaluationInfoModal
+        isOpen={showInfoModal}
+        onClose={() => setShowInfoModal(false)}
+        claimKey={sampleKey}
+        claimValue={sampleValue}
+        salt={sampleSalt}
+        leafHash={sampleLeafHash}
+        merkleRoot={authenticRoot}
+        computedRoot={calculatedRoot}
+        isVerified={isMatch}
+        proofDepth={2}
+      />
     </div>
   );
 }

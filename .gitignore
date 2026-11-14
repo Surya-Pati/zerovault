@@ -41,6 +41,7 @@ graphify-out/
 frontend/.playwright-cli/
 
 # Root scratch / one-off test scripts
+scratch/
 render_diagram_*.js
 render_screenshot_*.js
 section_data_*.py

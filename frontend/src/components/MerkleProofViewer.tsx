@@ -20,7 +20,9 @@ import {
   GitCommit,
   AlertTriangle,
   Lock,
-  Binary
+  Binary,
+  Info,
+  HelpCircle
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,6 +35,7 @@ import {
   DisclosureClaim 
 } from "@/lib/crypto";
 import { keccak256 } from "ethers";
+import MerkleEvaluationInfoModal from "@/components/MerkleEvaluationInfoModal";
 
 interface MerkleProofViewerProps {
   merkleRoot: string;
@@ -72,6 +75,7 @@ export default function MerkleProofViewer({
   const [proofInput, setProofInput] = useState<string>(
     JSON.stringify((initialClaims[0] as any)?.proof || [], null, 2)
   );
+  const [showInfoModal, setShowInfoModal] = useState<boolean>(false);
 
   // Sync state when initialClaims or selectedInitialIndex prop changes
   useEffect(() => {
@@ -147,6 +151,10 @@ export default function MerkleProofViewer({
       return "(Invalid salt/leaf)";
     }
   };
+
+  const currentComputedLeafHash = useMemo(() => {
+    return getSafeLeafHash(claimKey, claimValue, (initialClaims[selectedLeafIndex] as any)?.salt);
+  }, [claimKey, claimValue, initialClaims, selectedLeafIndex]);
 
   // Perform cryptographic proof verification locally using Keccak-256
   const handleVerify = () => {
@@ -227,6 +235,9 @@ export default function MerkleProofViewer({
           steps,
         });
 
+        // Surface evaluation info and attestation dialog
+        setShowInfoModal(true);
+
         if (onProofVerified) {
           onProofVerified(isValid, selectedLeafIndex);
         }
@@ -236,6 +247,7 @@ export default function MerkleProofViewer({
           message: `Verification error: ${err.message}`,
           traceLog: [`Error: ${err.message}`],
         });
+        setShowInfoModal(true);
         if (onProofVerified) {
           onProofVerified(false, selectedLeafIndex);
         }
@@ -558,11 +570,22 @@ export default function MerkleProofViewer({
 
             {/* Computed Leaf Hash preview badge */}
             <div className="p-2.5 rounded-lg bg-[#0A0C10] border border-[#1E2330] flex items-center justify-between font-mono text-xs">
-              <span className="text-[#64748B] text-[10px] uppercase tracking-wider">
-                Computed Leaf Hash:
-              </span>
-              <span className="text-[#F1F5F9] font-semibold truncate max-w-[260px] sm:max-w-[340px]" title={getSafeLeafHash(claimKey, claimValue, (initialClaims[selectedLeafIndex] as any)?.salt)}>
-                {getSafeLeafHash(claimKey, claimValue, (initialClaims[selectedLeafIndex] as any)?.salt)}
+              <div className="flex items-center gap-2">
+                <span className="text-[#64748B] text-[10px] uppercase tracking-wider">
+                  Computed Leaf Hash:
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowInfoModal(true)}
+                  className="inline-flex items-center gap-1 text-[10px] text-[#10B981] hover:text-[#34D399] transition-colors"
+                  title="What is this evaluated hash?"
+                >
+                  <HelpCircle className="w-3 h-3" />
+                  <span>Info</span>
+                </button>
+              </div>
+              <span className="text-[#F1F5F9] font-semibold truncate max-w-[220px] sm:max-w-[320px]" title={currentComputedLeafHash}>
+                {currentComputedLeafHash}
               </span>
             </div>
 
@@ -588,6 +611,17 @@ export default function MerkleProofViewer({
 
               <Button
                 variant="outline"
+                type="button"
+                onClick={() => setShowInfoModal(true)}
+                className="h-10 border-[#1E2330] bg-[#0A0C10] hover:border-[#10B981]/50 text-[#CBD5E1] hover:text-[#F1F5F9] font-mono text-xs tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5 px-3 shrink-0"
+                title="View cryptographic evaluation mechanics and attestation certificate"
+              >
+                <Info className="w-3.5 h-3.5 text-[#10B981]" />
+                <span>Evaluation Info</span>
+              </Button>
+
+              <Button
+                variant="outline"
                 onClick={() => {
                   setProofInput(JSON.stringify(["0xbad0000000000000000000000000000000000000000000000000000000000000"], null, 2));
                   setVerificationResult({
@@ -595,10 +629,10 @@ export default function MerkleProofViewer({
                     message: "Injected corrupted sibling node. Click 'Evaluate Cryptographic Proof' to test anti-fraud defense.",
                   });
                 }}
-                className="h-10 border-[#1E2330] bg-[#0A0C10] hover:border-[#EF4444]/60 text-[#848B98] hover:text-[#EF4444] font-mono text-xs tracking-wider rounded-lg transition-colors"
+                className="h-10 border-[#1E2330] bg-[#0A0C10] hover:border-[#EF4444]/60 text-[#848B98] hover:text-[#EF4444] font-mono text-xs tracking-wider rounded-lg transition-colors shrink-0"
                 title="Inject bad vector to simulate adversary tamper attack"
               >
-                Simulate Tamper Attack
+                Simulate Tamper
               </Button>
             </div>
 
@@ -658,6 +692,18 @@ export default function MerkleProofViewer({
                         {verificationResult.message}
                       </p>
 
+                      {/* Interactive Button to Open Evaluation Info Modal */}
+                      <div className="pt-2.5 mt-2.5 border-t border-[#1E2330] flex items-center justify-between">
+                        <button
+                          type="button"
+                          onClick={() => setShowInfoModal(true)}
+                          className="text-[11px] font-mono text-[#10B981] hover:text-[#34D399] flex items-center gap-1.5 transition-colors underline-offset-2 hover:underline"
+                        >
+                          <Info className="w-3.5 h-3.5" />
+                          <span>View Evaluation Details & Cryptographic Attestation</span>
+                        </button>
+                      </div>
+
                       {/* Merkle Traversal Trace Log */}
                       {verificationResult.traceLog && verificationResult.traceLog.length > 0 && (
                         <div className="mt-3 pt-3 border-t border-[#1E2330]">
@@ -682,6 +728,26 @@ export default function MerkleProofViewer({
           </div>
         </div>
       </div>
+
+      {/* Cryptographic Evaluation Info Modal */}
+      <MerkleEvaluationInfoModal
+        isOpen={showInfoModal}
+        onClose={() => setShowInfoModal(false)}
+        claimKey={claimKey}
+        claimValue={claimValue}
+        salt={(initialClaims[selectedLeafIndex] as any)?.salt}
+        leafHash={currentComputedLeafHash}
+        merkleRoot={activeMerkleRoot}
+        computedRoot={verificationResult.computedRoot}
+        isVerified={
+          verificationResult.status === "VALID"
+            ? true
+            : verificationResult.status === "INVALID"
+            ? false
+            : null
+        }
+        proofDepth={verificationResult.steps?.length || 0}
+      />
     </div>
   );
 }
