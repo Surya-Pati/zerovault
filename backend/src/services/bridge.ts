@@ -1,8 +1,7 @@
 import { ethers, Contract, JsonRpcProvider } from 'ethers';
-import { PrismaClient, ListingStatus, Role } from '@prisma/client';
+import { ListingStatus, Role } from '@prisma/client';
 import { migratePayload } from './payloadWorker';
-
-const prisma = new PrismaClient();
+import prisma from '../prisma';
 
 export const ZEROVAULT_ABI = [
   // Events

@@ -1,9 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { doubleCsrf } from 'csrf-csrf';
-import { PrismaClient, Role } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { Role } from '@prisma/client';
+import prisma from '../prisma';
 
 // ─── Secret Validation ──────────────────────────────────────────────
 // Crash on startup if critical secrets are missing.

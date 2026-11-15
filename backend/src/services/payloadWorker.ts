@@ -1,9 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import { PrismaClient, ListingStatus } from '@prisma/client';
+import { ListingStatus } from '@prisma/client';
 import { Contract, Provider } from 'ethers';
-
-const prisma = new PrismaClient();
+import prisma from '../prisma';
 
 // Configurable storage paths
 export const PUBLIC_STORAGE_DIR =

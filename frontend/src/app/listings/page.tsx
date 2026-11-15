@@ -107,7 +107,7 @@ export default function ListingsBrowsePage() {
           sumWei += BigInt(l.price_wei!);
         } catch {}
       });
-    return parseFloat(formatEther(sumWei)).toFixed(2);
+    return formatEthPrice(sumWei.toString());
   }, [listings]);
 
   const getSeverityBorderColor = (severity: string) => {

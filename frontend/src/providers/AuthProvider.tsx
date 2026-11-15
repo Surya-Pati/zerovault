@@ -58,7 +58,7 @@ export function AuthProvider({ children, hasSession }: { children: React.ReactNo
 
   const logout = async () => {
     try {
-      await fetchApi('/auth/logout', { method: 'GET' });
+      await fetchApi('/auth/logout', { method: 'POST' });
     } catch (err) {
       console.error('Logout failed', err);
     } finally {

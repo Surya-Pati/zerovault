@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { PrismaClient, ListingStatus } from '@prisma/client';
+import { ListingStatus } from '@prisma/client';
 import { migratePayload } from '../services/payloadWorker';
 import { z } from 'zod';
 import fs from 'fs';
@@ -7,8 +7,7 @@ import path from 'path';
 import { keccak256, toUtf8Bytes, JsonRpcProvider, isHexString, getBytes, Interface } from 'ethers';
 import jwt from 'jsonwebtoken';
 import { JWT_SECRET } from '../auth/auth.middleware';
-
-const prisma = new PrismaClient();
+import prisma from '../prisma';
 const PUBLIC_STORAGE_DIR = path.join(__dirname, '../../storage/public');
 
 const bountyLockedIfaceV2 = new Interface([
@@ -54,9 +53,15 @@ const createListingSchema = z.object({
   vendor_id: z.string().optional(),
   claims: z.any().optional(), // We accept the full claims array built on the frontend
   ciphertext: z.string().min(1, 'Ciphertext is required'),
-  iv: z.string().min(1, 'IV is required'),
-  keyHash: z.string().min(1, 'keyHash is required'),
-  merkleRoot: z.string().min(1, 'merkleRoot is required'),
+  iv: z.string().regex(/^(0x)?[a-fA-F0-9]{24}$/, 'IV must be a 12-byte hex string (24 characters)'),
+  keyHash: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{64}$/, 'keyHash must be a 32-byte hex hash (0x + 64 characters)')
+    .transform((val) => val.toLowerCase()),
+  merkleRoot: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{64}$/, 'merkleRoot must be a 32-byte hex hash (0x + 64 characters)')
+    .transform((val) => val.toLowerCase()),
 });
 
 const commitListingSchema = z.object({

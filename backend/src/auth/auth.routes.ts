@@ -10,8 +10,8 @@ router.get('/csrf-token', getCsrfToken);
 // SIWE Nonce
 router.get('/nonce', getNonce);
 
-// Logout (does not need CSRF protection)
-router.get('/logout', logout);
+// Logout (POST only to prevent Logout CSRF, placed before doubleCsrfProtection so logout succeeds even with stale/expired CSRF tokens)
+router.post('/logout', logout);
 
 // Protected by CSRF
 router.use(doubleCsrfProtection);

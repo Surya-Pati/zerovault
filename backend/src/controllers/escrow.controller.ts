@@ -1,10 +1,9 @@
 import { Request, Response } from 'express';
-import { PrismaClient, ListingStatus } from '@prisma/client';
+import { ListingStatus } from '@prisma/client';
 import { z } from 'zod';
 import { keccak256, toUtf8Bytes, isHexString, getBytes, JsonRpcProvider, Interface } from 'ethers';
 import { migratePayload } from '../services/payloadWorker';
-
-const prisma = new PrismaClient();
+import prisma from '../prisma';
 
 const bountyLockedIfaceV2 = new Interface([
   'event BountyLocked(bytes32 indexed merkleRoot, address indexed buyer, uint256 amount, bytes buyerPublicKey)'

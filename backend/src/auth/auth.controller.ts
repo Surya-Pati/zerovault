@@ -1,12 +1,11 @@
 import { Request, Response } from 'express';
-import { PrismaClient, Role } from '@prisma/client';
+import { Role } from '@prisma/client';
 import argon2 from 'argon2';
 import jwt from 'jsonwebtoken';
 import { generateNonce, SiweMessage } from 'siwe';
 import { z } from 'zod';
 import { generateCsrfToken, JWT_SECRET } from './auth.middleware';
-
-const prisma = new PrismaClient();
+import prisma from '../prisma';
 
 // ─── Zod Validation Schemas ─────────────────────────────────────────
 
