@@ -694,12 +694,15 @@ export const downloadPayload = async (req: Request, res: Response) => {
       });
     }
 
-    // Authorization: must be the purchasing buyer
+    // Authorization: purchasing buyer, original seller, or system admin
+    const isSeller = listing.seller_id === user.id;
     const isPurchasingBuyer = (listing.escrow && listing.escrow.buyer_id === user.id) || 
-                              (listing.vendor_address && listing.vendor_address.toLowerCase() === user.wallet_address.toLowerCase());
-    if (!isPurchasingBuyer) {
+                              Boolean(listing.vendor_address && user.wallet_address && listing.vendor_address.toLowerCase() === user.wallet_address.toLowerCase());
+    const isAdmin = user.role === 'ADMIN';
+
+    if (!isPurchasingBuyer && !isSeller && !isAdmin) {
       return res.status(403).json({
-        error: 'Only the buyer who funded this listing can download the payload',
+        error: 'Only the purchasing buyer or listing seller can download the payload',
       });
     }
 

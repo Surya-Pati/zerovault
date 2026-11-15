@@ -64,9 +64,16 @@ export const verifySiwe = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Nonce missing or expired. Please try again.' });
     }
 
-    const expectedDomain = process.env.ALLOWED_ORIGINS 
-      ? new URL(process.env.ALLOWED_ORIGINS.split(',')[0]).host 
-      : 'localhost:3000';
+    const rawOrigins = process.env.ALLOWED_ORIGINS 
+      ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+      : ['http://localhost:3000', 'http://127.0.0.1:3000'];
+    const allowedHosts = rawOrigins.map(o => {
+      try { return new URL(o).host; } catch { return o; }
+    });
+
+    const expectedDomain = allowedHosts.includes(siweMessage.domain)
+      ? siweMessage.domain
+      : allowedHosts[0] || 'localhost:3000';
 
     const result = await siweMessage.verify({ 
       signature, 
@@ -103,7 +110,7 @@ export const verifySiwe = async (req: Request, res: Response) => {
           data: {
             wallet_address,
             role,
-            profile_name: `${role === 'BUYER' ? 'Buyer' : 'Researcher'}-${wallet_address.slice(2, 8).toUpperCase()}`
+            profile_name: `${role === 'BUYER' ? 'Buyer' : 'Researcher'}-${wallet_address.slice(2, 6).toUpperCase()}${wallet_address.slice(-4).toUpperCase()}`
           }
         });
       }
@@ -144,17 +151,13 @@ export const getMe = async (req: Request, res: Response) => {
 // ─── Get Buyers ─────────────────────────────────────────────────────
 export const getBuyers = async (req: Request, res: Response) => {
   try {
-    const caller = (req as any).user;
-    const isAdmin = caller?.role === Role.ADMIN;
-
     const buyers = await prisma.user.findMany({
       where: { role: 'BUYER' },
       select: {
         id: true,
         profile_name: true,
-        // Only expose sensitive fields to admins
-        wallet_address: isAdmin,
-        verified_buyer: isAdmin,
+        wallet_address: true,
+        verified_buyer: true,
       }
     });
     res.json({ buyers });

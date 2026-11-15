@@ -183,6 +183,7 @@ export const revealEscrow = async (req: Request, res: Response) => {
       where: { listing_id: listing.id },
       update: {
         status: ListingStatus.SETTLED,
+        decryption_key: decryptionKey,
         ...(txHashSettle ? { tx_hash_settle: txHashSettle } : {}),
       },
       create: {
@@ -190,6 +191,7 @@ export const revealEscrow = async (req: Request, res: Response) => {
         buyer_id: existingEscrow?.buyer_id || user.id,
         contract_address: existingEscrow?.contract_address || defaultContractAddress,
         status: ListingStatus.SETTLED,
+        decryption_key: decryptionKey,
         tx_hash_settle: txHashSettle || null,
       },
     });

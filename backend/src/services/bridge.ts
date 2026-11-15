@@ -327,11 +327,11 @@ export class Web3BridgeService {
       const CHUNK_SIZE = 8;
       let startBlock = lastProcessedBlock + 1;
       
-      // If server was offline for a long period, cap lookback to last 50 blocks (~10 min)
-      // so startup doesn't sequentially query thousands of empty historical blocks
-      const MAX_LOOKBACK_BLOCKS = 50;
+      // If server was offline for an extended period, cap lookback to MAX_LOOKBACK_BLOCKS (defaults to 5000 blocks ~16 hrs)
+      // so startup doesn't sequentially query millions of historical blocks
+      const MAX_LOOKBACK_BLOCKS = Number(process.env.MAX_LOOKBACK_BLOCKS || 5000);
       if (currentBlock - startBlock > MAX_LOOKBACK_BLOCKS) {
-        console.log(`[Web3Bridge] Server was offline for ${currentBlock - startBlock} blocks. Fast-forwarding replay to last ${MAX_LOOKBACK_BLOCKS} blocks.`);
+        console.log(`[Web3Bridge] Server was offline for ${currentBlock - startBlock} blocks. Reconciling last ${MAX_LOOKBACK_BLOCKS} blocks.`);
         startBlock = Math.max(startBlock, currentBlock - MAX_LOOKBACK_BLOCKS);
       }
 
