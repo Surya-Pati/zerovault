@@ -89,7 +89,9 @@ export default function Navigation() {
                 <span className="text-[#848B98] text-[11px] uppercase">{user.role}</span>
                 <span className="text-[11px] text-[#9AA2B2]">|</span>
                 <span className="text-[11px]">
-                  {user.wallet_address.slice(0, 6)}...{user.wallet_address.slice(-4)}
+                  {user.wallet_address
+                    ? `${user.wallet_address.slice(0, 6)}...${user.wallet_address.slice(-4)}`
+                    : user.profile_name || "Connected"}
                 </span>
                 {copied ? (
                   <Check className="w-3 h-3 text-[#16A34A]" />

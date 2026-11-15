@@ -5,10 +5,23 @@ import { encryptPayload } from '@zerovault/shared';
 import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
-import { keccak256, toUtf8Bytes, JsonRpcProvider, isHexString, getBytes } from 'ethers';
+import { keccak256, toUtf8Bytes, JsonRpcProvider, isHexString, getBytes, Interface } from 'ethers';
 
 const prisma = new PrismaClient();
 const PUBLIC_STORAGE_DIR = path.join(__dirname, '../../storage/public');
+
+const bountyLockedIfaceV2 = new Interface([
+  'event BountyLocked(bytes32 indexed merkleRoot, address indexed buyer, uint256 amount, bytes buyerPublicKey)'
+]);
+const bountyLockedIfaceV1 = new Interface([
+  'event BountyLocked(bytes32 indexed merkleRoot, uint256 amount)'
+]);
+const settlementIfaceV2 = new Interface([
+  'event SettlementConfirmed(bytes32 indexed merkleRoot, bytes32 keyHash, bytes encryptedKey)'
+]);
+const settlementIfaceV1 = new Interface([
+  'event SettlementConfirmed(bytes32 indexed merkleRoot, bytes32 keyHash)'
+]);
 
 // ─── Zod Validation Schemas ─────────────────────────────────────────
 const createListingSchema = z.object({
@@ -17,7 +30,20 @@ const createListingSchema = z.object({
   severity: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'], {
     errorMap: () => ({ message: 'Severity must be LOW, MEDIUM, HIGH, or CRITICAL' }),
   }),
-  price_wei: z.string().min(1, 'Price is required').regex(/^\d+$/, 'price_wei must be a numeric string'),
+  price_wei: z
+    .string()
+    .min(1, 'Price is required')
+    .regex(/^\d+$/, 'price_wei must be a numeric string')
+    .refine(
+      (val) => {
+        try {
+          return BigInt(val) >= BigInt('1000000000000000'); // MIN_BOUNTY: 0.001 ETH
+        } catch {
+          return false;
+        }
+      },
+      { message: 'Asking price must be at least 0.001 ETH (1e15 wei)' }
+    ),
   vendor_id: z.string().optional(),
   claims: z.any().optional(), // We accept the full claims array built on the frontend
   ciphertext: z.string().min(1, 'Ciphertext is required'),
@@ -311,19 +337,26 @@ export const fundEscrow = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Transaction did not emit any events. The smart contract might be missing or the call was invalid.' });
     }
 
-    // Decode event to check the amount
-    const ethers = await import('ethers');
-    const ifaceInstance = new ethers.Interface([
-      'event BountyLocked(bytes32 indexed merkleRoot, uint256 amount)'
-    ]);
-    
+    // Decode event to check the amount (supports both v2 and legacy v1 BountyLocked signatures)
     let paidAmount = BigInt(0);
     let matchedRoot = false;
+    let capturedBuyerPublicKey: string | null = null;
     for (const log of receipt.logs) {
       try {
-        const parsed = ifaceInstance.parseLog(log);
+        let parsed: any = null;
+        try {
+          parsed = bountyLockedIfaceV2.parseLog(log);
+        } catch {}
+        if (!parsed) {
+          try {
+            parsed = bountyLockedIfaceV1.parseLog(log);
+          } catch {}
+        }
         if (parsed && parsed.name === 'BountyLocked' && parsed.args.merkleRoot.toLowerCase() === listing.merkle_root.toLowerCase()) {
           paidAmount = parsed.args.amount;
+          if (parsed.args.buyerPublicKey && typeof parsed.args.buyerPublicKey === 'string' && parsed.args.buyerPublicKey !== '0x') {
+            capturedBuyerPublicKey = parsed.args.buyerPublicKey;
+          }
           matchedRoot = true;
           break;
         }
@@ -368,6 +401,7 @@ export const fundEscrow = async (req: Request, res: Response) => {
         status: ListingStatus.BOUNTY_LOCKED,
         bounty_locked_at: new Date(),
         buyer_id: user.id, // OVERRIDE the bridge's placeholder buyer_id!
+        ...(capturedBuyerPublicKey ? { buyer_public_key: capturedBuyerPublicKey } : {}),
       },
       create: {
         listing_id: id,
@@ -376,6 +410,7 @@ export const fundEscrow = async (req: Request, res: Response) => {
         tx_hash_fund,
         status: ListingStatus.BOUNTY_LOCKED,
         bounty_locked_at: new Date(),
+        ...(capturedBuyerPublicKey ? { buyer_public_key: capturedBuyerPublicKey } : {}),
       },
     });
 
@@ -606,18 +641,10 @@ export const settleEscrow = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Transaction did not emit any events. The smart contract might be missing or the call was invalid.' });
     }
 
-    const ethersModule = await import('ethers');
-    const ifaceV2 = new ethersModule.Interface([
-      'event SettlementConfirmed(bytes32 indexed merkleRoot, bytes32 keyHash, bytes encryptedKey)'
-    ]);
-    const ifaceV1 = new ethersModule.Interface([
-      'event SettlementConfirmed(bytes32 indexed merkleRoot, bytes32 keyHash)'
-    ]);
-    
     let matchedRoot = false;
     for (const log of receipt.logs) {
       try {
-        const parsed = ifaceV2.parseLog(log) || ifaceV1.parseLog(log);
+        const parsed = settlementIfaceV2.parseLog(log) || settlementIfaceV1.parseLog(log);
         if (parsed && parsed.name === 'SettlementConfirmed' && parsed.args.merkleRoot.toLowerCase() === listing.merkle_root.toLowerCase()) {
           matchedRoot = true;
           break;

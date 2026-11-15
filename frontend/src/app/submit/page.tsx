@@ -33,7 +33,7 @@ export default function SubmitListingPage() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [buyers, setBuyers] = useState<{ id: string; profile_name: string }[]>([]);
+  const [buyers, setBuyers] = useState<{ id: string; profile_name: string; wallet_address?: string | null }[]>([]);
   
   const [formData, setFormData] = useState({
     title: "",
@@ -88,7 +88,6 @@ export default function SubmitListingPage() {
       !formData.category ||
       !formData.severity ||
       !formData.priceEth ||
-      !formData.vendor_id ||
       blocks.some((b) => !b.content.trim())
     ) {
       setError("Please fill out all specification fields and code blocks.");
@@ -164,7 +163,7 @@ export default function SubmitListingPage() {
           category: formData.category,
           severity: formData.severity,
           price_wei: priceWei,
-          vendor_id: formData.vendor_id,
+          vendor_id: formData.vendor_id ? formData.vendor_id : undefined,
           claims: revealedClaimsArr,
           ciphertext: encrypted.ciphertext,
           iv: encrypted.iv,
@@ -392,10 +391,10 @@ export default function SubmitListingPage() {
                       onChange={handleChange}
                       className="w-full px-3 py-2 rounded border border-[#232732] bg-[#0C0E12] text-[#F0F2F5] font-mono text-xs focus:outline-none focus:border-[#2563EB]"
                     >
-                      <option value="" disabled>Select target buyer...</option>
+                      <option value="">Open Listing (Any Verified Buyer)</option>
                       {buyers.map((buyer) => (
                         <option key={buyer.id} value={buyer.id}>
-                          @{buyer.profile_name || "Unknown"}
+                          @{buyer.profile_name || "Unknown"} {buyer.wallet_address ? `(${buyer.wallet_address.slice(0, 6)}...${buyer.wallet_address.slice(-4)})` : ""}
                         </option>
                       ))}
                     </select>

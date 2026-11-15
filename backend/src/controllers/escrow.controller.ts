@@ -1,9 +1,22 @@
 import { Request, Response } from 'express';
 import { PrismaClient, ListingStatus } from '@prisma/client';
 import { z } from 'zod';
-import { keccak256, toUtf8Bytes, isHexString, getBytes } from 'ethers';
+import { keccak256, toUtf8Bytes, isHexString, getBytes, JsonRpcProvider, Interface } from 'ethers';
 
 const prisma = new PrismaClient();
+
+const bountyLockedIfaceV2 = new Interface([
+  'event BountyLocked(bytes32 indexed merkleRoot, address indexed buyer, uint256 amount, bytes buyerPublicKey)'
+]);
+const bountyLockedIfaceV1 = new Interface([
+  'event BountyLocked(bytes32 indexed merkleRoot, uint256 amount)'
+]);
+const settlementIfaceV2 = new Interface([
+  'event SettlementConfirmed(bytes32 indexed merkleRoot, bytes32 keyHash, bytes encryptedKey)'
+]);
+const settlementIfaceV1 = new Interface([
+  'event SettlementConfirmed(bytes32 indexed merkleRoot, bytes32 keyHash)'
+]);
 
 // Zod validation schemas
 export const fundEscrowSchema = z
@@ -81,6 +94,53 @@ export const fundEscrow = async (req: Request, res: Response) => {
       process.env.ZEROVAULT_CONTRACT_ADDRESS || '0x0000000000000000000000000000000000000000';
     const contractAddress = data.contract_address || defaultContractAddress;
 
+    // In live environments, verify transaction receipt and event logs on-chain
+    let capturedBuyerPublicKey: string | null = null;
+    if (txHash && process.env.NODE_ENV !== 'test' && !process.env.SKIP_ONCHAIN_VERIFY) {
+      const rpcUrl = process.env.RPC_URL || 'http://127.0.0.1:8545';
+      const provider = new JsonRpcProvider(rpcUrl);
+      const receipt = await provider.getTransactionReceipt(txHash).catch(() => null);
+      if (!receipt || receipt.status === 0) {
+        return res.status(400).json({ error: 'Transaction failed or not found on-chain.' });
+      }
+      if (contractAddress && receipt.to && receipt.to.toLowerCase() !== contractAddress.toLowerCase()) {
+        return res.status(400).json({ error: 'Transaction was not sent to the ZeroVault contract.' });
+      }
+      if (!receipt.logs || receipt.logs.length === 0) {
+        return res.status(400).json({ error: 'Transaction did not emit any events.' });
+      }
+
+      let paidAmount = BigInt(0);
+      let matchedRoot = false;
+      for (const log of receipt.logs) {
+        let parsed: any = null;
+        try {
+          parsed = bountyLockedIfaceV2.parseLog(log);
+        } catch {}
+        if (!parsed) {
+          try {
+            parsed = bountyLockedIfaceV1.parseLog(log);
+          } catch {}
+        }
+        if (parsed && parsed.name === 'BountyLocked' && parsed.args.merkleRoot.toLowerCase() === listing.merkle_root.toLowerCase()) {
+          paidAmount = parsed.args.amount;
+          if (parsed.args.buyerPublicKey && typeof parsed.args.buyerPublicKey === 'string' && parsed.args.buyerPublicKey !== '0x') {
+            capturedBuyerPublicKey = parsed.args.buyerPublicKey;
+          }
+          matchedRoot = true;
+          break;
+        }
+      }
+
+      if (!matchedRoot) {
+        return res.status(400).json({ error: 'Transaction did not emit BountyLocked for this listing.' });
+      }
+
+      if (paidAmount < BigInt(listing.price_wei)) {
+        return res.status(400).json({ error: `Underpayment: Required ${listing.price_wei} WEI but transaction only locked ${paidAmount.toString()} WEI` });
+      }
+    }
+
     // Upsert EscrowTransaction
     const escrow = await prisma.escrowTransaction.upsert({
       where: { listing_id: listingId },
@@ -90,6 +150,7 @@ export const fundEscrow = async (req: Request, res: Response) => {
         status: ListingStatus.BOUNTY_LOCKED,
         bounty_locked_at: new Date(),
         contract_address: contractAddress,
+        ...(capturedBuyerPublicKey ? { buyer_public_key: capturedBuyerPublicKey } : {}),
       },
       create: {
         listing_id: listingId,
@@ -98,6 +159,7 @@ export const fundEscrow = async (req: Request, res: Response) => {
         tx_hash_fund: txHash,
         status: ListingStatus.BOUNTY_LOCKED,
         bounty_locked_at: new Date(),
+        ...(capturedBuyerPublicKey ? { buyer_public_key: capturedBuyerPublicKey } : {}),
       },
     });
 
@@ -150,6 +212,32 @@ export const revealEscrow = async (req: Request, res: Response) => {
 
     if (!listing) {
       return res.status(404).json({ error: 'Vulnerability listing not found' });
+    }
+
+    // In live environments, verify transaction receipt on-chain if settlement tx provided
+    if (txHashSettle && process.env.NODE_ENV !== 'test' && !process.env.SKIP_ONCHAIN_VERIFY) {
+      const rpcUrl = process.env.RPC_URL || 'http://127.0.0.1:8545';
+      const provider = new JsonRpcProvider(rpcUrl);
+      const receipt = await provider.getTransactionReceipt(txHashSettle).catch(() => null);
+      if (!receipt || receipt.status === 0) {
+        return res.status(400).json({ error: 'Transaction failed or not found on-chain.' });
+      }
+      if (!receipt.logs || receipt.logs.length === 0) {
+        return res.status(400).json({ error: 'Transaction did not emit any events.' });
+      }
+      let matchedRoot = false;
+      for (const log of receipt.logs) {
+        try {
+          const parsed = settlementIfaceV2.parseLog(log) || settlementIfaceV1.parseLog(log);
+          if (parsed && parsed.name === 'SettlementConfirmed' && parsed.args.merkleRoot.toLowerCase() === listing.merkle_root.toLowerCase()) {
+            matchedRoot = true;
+            break;
+          }
+        } catch {}
+      }
+      if (!matchedRoot) {
+        return res.status(400).json({ error: 'Transaction did not emit SettlementConfirmed for this listing.' });
+      }
     }
 
     const user = (req as any).user;

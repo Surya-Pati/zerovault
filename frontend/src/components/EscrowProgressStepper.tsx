@@ -224,10 +224,10 @@ export default function EscrowProgressStepper({
         console.warn("Could not pre-flight verify KYC status:", e);
       }
 
-      if (!isVerifiedOnChain && !user?.verified_buyer) {
+      if (!isVerifiedOnChain) {
         setTxState({
           isLoading: false,
-          error: "Buyer wallet is not KYC-verified. Please ask an Administrator to approve your KYC first."
+          error: "Buyer wallet is not KYC-verified on-chain. Please ensure an Administrator approves your wallet on the smart contract before locking bounty."
         });
         return;
       }
