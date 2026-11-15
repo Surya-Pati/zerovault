@@ -86,8 +86,16 @@ app.use('/api/escrow', escrowRoutes);
 // Catches unhandled errors and prevents stack trace leakage
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   // CORS errors
-  if (err.message.includes('CORS')) {
+  if (err?.message?.includes('CORS')) {
     return res.status(403).json({ error: 'Origin not allowed' });
+  }
+
+  // CSRF errors
+  const isCsrfError =
+    (err as any)?.code === 'EBADCSRFTOKEN' ||
+    Boolean(err?.message && err.message.toLowerCase().includes('csrf'));
+  if (isCsrfError) {
+    return res.status(403).json({ error: 'Invalid or missing CSRF token' });
   }
   
   console.error('[GlobalErrorHandler]', err.message);

@@ -22,6 +22,20 @@ const sellerToken = jwt.sign(
   { expiresIn: '1h' }
 );
 
+const buyerCookie = `session=${validToken}`;
+const sellerCookie = `session=${sellerToken}`;
+
+async function getCsrfForSession(sessionCookie: string) {
+  const res = await request(app)
+    .get('/api/auth/csrf-token')
+    .set('Cookie', [sessionCookie]);
+  const token = res.body.csrfToken;
+  const rawCookies = res.headers['set-cookie'];
+  const cookies: string[] = Array.isArray(rawCookies) ? rawCookies : (typeof rawCookies === 'string' ? [rawCookies] : []);
+  const csrfCookie = cookies.find((c: string) => c.startsWith('x-csrf-token=')) || '';
+  return { token, csrfCookie };
+}
+
 // Mock Prisma Client
 jest.mock('@prisma/client', () => {
   const mockUser = {
@@ -49,6 +63,18 @@ jest.mock('@prisma/client', () => {
     created_at: new Date(),
   };
 
+  const mockUnfundedListing = {
+    id: 'listing-unfunded',
+    seller_id: 'seller-456',
+    title: 'Unfunded Listing',
+    category: 'RCE',
+    severity: 'HIGH',
+    merkle_root: '0xunfunded1111111111111111111111111111111111111111111111111111111111',
+    price_wei: '1000000000000000000',
+    status: 'COMMITTED',
+    created_at: new Date(),
+  };
+
   const mockEscrow = {
     id: 'escrow-123',
     listing_id: 'listing-123',
@@ -59,6 +85,19 @@ jest.mock('@prisma/client', () => {
     status: 'BOUNTY_LOCKED',
     bounty_locked_at: new Date(),
     listing: mockListing,
+    buyer: mockUser,
+  };
+
+  const mockUnfundedEscrow = {
+    id: 'escrow-unfunded',
+    listing_id: 'listing-unfunded',
+    buyer_id: 'user-123',
+    contract_address: '0x0000000000000000000000000000000000000000',
+    tx_hash_fund: null,
+    tx_hash_settle: null,
+    status: 'COMMITTED',
+    bounty_locked_at: null,
+    listing: mockUnfundedListing,
     buyer: mockUser,
   };
 
@@ -74,6 +113,7 @@ jest.mock('@prisma/client', () => {
       vulnerabilityListing: {
         findUnique: jest.fn().mockImplementation(({ where }) => {
           if (where.id === 'listing-123') return Promise.resolve(mockListing);
+          if (where.id === 'listing-unfunded') return Promise.resolve(mockUnfundedListing);
           return Promise.resolve(null);
         }),
         findFirst: jest.fn().mockImplementation(({ where }) => {
@@ -87,6 +127,17 @@ jest.mock('@prisma/client', () => {
               ))
           ) {
             return Promise.resolve(mockListing);
+          }
+          if (
+            where.id === 'listing-unfunded' ||
+            where.merkle_root === mockUnfundedListing.merkle_root ||
+            (where.OR &&
+              where.OR.some(
+                (o: any) =>
+                  o.id === 'listing-unfunded' || o.merkle_root === mockUnfundedListing.merkle_root
+              ))
+          ) {
+            return Promise.resolve(mockUnfundedListing);
           }
           return Promise.resolve(null);
         }),
@@ -113,6 +164,7 @@ jest.mock('@prisma/client', () => {
         }),
         findUnique: jest.fn().mockImplementation(({ where }) => {
           if (where.listing_id === 'listing-123') return Promise.resolve(mockEscrow);
+          if (where.listing_id === 'listing-unfunded') return Promise.resolve(mockUnfundedEscrow);
           return Promise.resolve(null);
         }),
         upsert: jest.fn().mockImplementation(({ update, create }) => {
@@ -152,10 +204,21 @@ describe('Module 4: API Gateway & Web3 Bridge Tests', () => {
       expect(res.body.error).toContain('Unauthorized');
     });
 
-    it('should return 400 when missing listing_id or tx_hash (Zod validation)', async () => {
+    it('should return 403 when CSRF token is missing', async () => {
       const res = await request(app)
         .post('/api/escrow/fund')
-        .set('Cookie', [`session=${validToken}`])
+        .set('Cookie', [buyerCookie])
+        .send({ listing_id: 'listing-123', tx_hash: '0xfund123' });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('should return 400 when missing listing_id or tx_hash (Zod validation)', async () => {
+      const { token, csrfCookie } = await getCsrfForSession(buyerCookie);
+      const res = await request(app)
+        .post('/api/escrow/fund')
+        .set('x-csrf-token', token)
+        .set('Cookie', [csrfCookie, buyerCookie])
         .send({ listing_id: '' });
 
       expect(res.status).toBe(400);
@@ -163,9 +226,11 @@ describe('Module 4: API Gateway & Web3 Bridge Tests', () => {
     });
 
     it('should return 404 when listing does not exist', async () => {
+      const { token, csrfCookie } = await getCsrfForSession(buyerCookie);
       const res = await request(app)
         .post('/api/escrow/fund')
-        .set('Cookie', [`session=${validToken}`])
+        .set('x-csrf-token', token)
+        .set('Cookie', [csrfCookie, buyerCookie])
         .send({ listing_id: 'non-existent-listing', tx_hash: '0xfund123' });
 
       expect(res.status).toBe(404);
@@ -173,9 +238,11 @@ describe('Module 4: API Gateway & Web3 Bridge Tests', () => {
     });
 
     it('should return 403 when seller attempts to fund own listing', async () => {
+      const { token, csrfCookie } = await getCsrfForSession(sellerCookie);
       const res = await request(app)
         .post('/api/escrow/fund')
-        .set('Cookie', [`session=${sellerToken}`])
+        .set('x-csrf-token', token)
+        .set('Cookie', [csrfCookie, sellerCookie])
         .send({ listing_id: 'listing-123', tx_hash: '0xfund123' });
 
       expect(res.status).toBe(403);
@@ -183,9 +250,11 @@ describe('Module 4: API Gateway & Web3 Bridge Tests', () => {
     });
 
     it('should update escrow state and return 200 on valid funding request', async () => {
+      const { token, csrfCookie } = await getCsrfForSession(buyerCookie);
       const res = await request(app)
         .post('/api/escrow/fund')
-        .set('Cookie', [`session=${validToken}`])
+        .set('x-csrf-token', token)
+        .set('Cookie', [csrfCookie, buyerCookie])
         .send({ listing_id: 'listing-123', tx_hash: '0xfund123' });
 
       expect(res.status).toBe(200);
@@ -205,20 +274,49 @@ describe('Module 4: API Gateway & Web3 Bridge Tests', () => {
       expect(res.status).toBe(401);
     });
 
-    it('should return 400 when decryptionKey or merkleRoot is missing (Zod validation)', async () => {
+    it('should return 403 when CSRF token is missing', async () => {
       const res = await request(app)
         .post('/api/escrow/reveal')
-        .set('Cookie', [`session=${sellerToken}`])
+        .set('Cookie', [sellerCookie])
+        .send({ decryptionKey: 'secret_key_123', merkleRoot: '0x123' });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('should return 400 when decryptionKey or merkleRoot is missing (Zod validation)', async () => {
+      const { token, csrfCookie } = await getCsrfForSession(sellerCookie);
+      const res = await request(app)
+        .post('/api/escrow/reveal')
+        .set('x-csrf-token', token)
+        .set('Cookie', [csrfCookie, sellerCookie])
         .send({ decryptionKey: '' });
 
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('Validation failed');
     });
 
-    it('should update escrow and listing state to SETTLED on valid reveal request', async () => {
+    it('should return 400 when attempting to reveal an escrow that is not funded', async () => {
+      const { token, csrfCookie } = await getCsrfForSession(sellerCookie);
       const res = await request(app)
         .post('/api/escrow/reveal')
-        .set('Cookie', [`session=${sellerToken}`])
+        .set('x-csrf-token', token)
+        .set('Cookie', [csrfCookie, sellerCookie])
+        .send({
+          decryptionKey: 'aes_secret_key_999',
+          merkleRoot: '0xunfunded1111111111111111111111111111111111111111111111111111111111',
+          tx_hash_settle: '0xsettle999',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('escrow must be funded first');
+    });
+
+    it('should update escrow and listing state to SETTLED on valid reveal request', async () => {
+      const { token, csrfCookie } = await getCsrfForSession(sellerCookie);
+      const res = await request(app)
+        .post('/api/escrow/reveal')
+        .set('x-csrf-token', token)
+        .set('Cookie', [csrfCookie, sellerCookie])
         .send({
           decryptionKey: 'aes_secret_key_999',
           merkleRoot: '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',

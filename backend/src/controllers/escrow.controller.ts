@@ -282,28 +282,25 @@ export const revealEscrow = async (req: Request, res: Response) => {
       }
     }
 
-    // Upsert or update EscrowTransaction
+    // Verify escrow exists and was funded
     const existingEscrow = await prisma.escrowTransaction.findUnique({
       where: { listing_id: listing.id },
     });
 
-    const defaultContractAddress =
-      process.env.ZEROVAULT_CONTRACT_ADDRESS || '0x0000000000000000000000000000000000000000';
+    if (
+      !existingEscrow ||
+      (existingEscrow.status !== ListingStatus.BOUNTY_LOCKED &&
+        existingEscrow.status !== ListingStatus.SETTLED)
+    ) {
+      return res.status(400).json({ error: 'Cannot reveal key: escrow must be funded first.' });
+    }
 
-    const escrow = await prisma.escrowTransaction.upsert({
-      where: { listing_id: listing.id },
-      update: {
+    const escrow = await prisma.escrowTransaction.update({
+      where: { id: existingEscrow.id },
+      data: {
         status: ListingStatus.SETTLED,
         decryption_key: decryptionKey,
         ...(txHashSettle ? { tx_hash_settle: txHashSettle } : {}),
-      },
-      create: {
-        listing_id: listing.id,
-        buyer_id: existingEscrow?.buyer_id || user.id,
-        contract_address: existingEscrow?.contract_address || defaultContractAddress,
-        status: ListingStatus.SETTLED,
-        decryption_key: decryptionKey,
-        tx_hash_settle: txHashSettle || null,
       },
     });
 

@@ -11,6 +11,17 @@ import { DisclosureClaim, RawDisclosureClaim, normalizePayload } from "@/lib/cry
 import { fetchApi } from "@/lib/api";
 import { fetchOnChainEscrow } from "@/lib/contracts";
 import { useAuth } from "@/providers/AuthProvider";
+import { formatEther } from "ethers";
+
+function formatPriceEth(priceWei?: string | null): string {
+  if (!priceWei) return "0";
+  try {
+    return formatEther(BigInt(priceWei));
+  } catch {
+    const num = Number(priceWei);
+    return isNaN(num) ? "0" : (num / 1e18).toString();
+  }
+}
 
 interface ListingData {
   id: string;
@@ -100,7 +111,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
                   category: l.category || "General",
                   severity: l.severity || "MEDIUM",
                   merkle_root: l.merkle_root,
-                  price_eth: l.price_wei ? (Number(l.price_wei) / 1e18).toString() : "0",
+                  price_eth: formatPriceEth(l.price_wei),
                   status: l.status || "CREATED",
                   seller_address: l.seller?.wallet_address || l.seller_address || "0x...",
                   vendor_address: l.vendor?.wallet_address || l.vendor_address || "0x...",

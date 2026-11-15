@@ -165,12 +165,13 @@ export async function handleContractEvent(
             },
           }).catch(() => null);
         }
-        resolvedBuyerId = defaultBuyer?.id || 'buyer-placeholder';
+        resolvedBuyerId = defaultBuyer?.id || null;
       }
     }
 
     if (!resolvedBuyerId) {
-      resolvedBuyerId = 'buyer-placeholder';
+      const fallbackUser = prisma.user?.findFirst ? await prisma.user.findFirst().catch(() => null) : null;
+      resolvedBuyerId = fallbackUser?.id || listing.seller_id;
     }
 
     // Update VulnerabilityListing status and ipfs_hash if available
