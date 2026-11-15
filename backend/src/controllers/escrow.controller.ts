@@ -81,6 +81,10 @@ export const fundEscrow = async (req: Request, res: Response) => {
     return res.status(403).json({ error: 'Only buyers can fund escrows' });
   }
 
+  if (user.role === 'BUYER' && !user.verified_buyer) {
+    return res.status(403).json({ error: 'Only admin-verified buyers can fund escrows' });
+  }
+
   try {
     const listing = await prisma.vulnerabilityListing.findUnique({
       where: { id: listingId },
@@ -407,7 +411,7 @@ export const getEscrowStatus = async (req: Request, res: Response) => {
     const isSeller = user && escrow.listing.seller_id === user.id;
     const isAdmin = user && user.role === 'ADMIN';
     const isBuyer = Boolean(
-      user && (
+      user && !isSeller && (
         escrow.buyer_id === user.id ||
         (user.wallet_address && escrow.buyer?.wallet_address && user.wallet_address.toLowerCase() === escrow.buyer.wallet_address.toLowerCase()) ||
         (user.wallet_address && escrow.listing.vendor_address && user.wallet_address.toLowerCase() === escrow.listing.vendor_address.toLowerCase())

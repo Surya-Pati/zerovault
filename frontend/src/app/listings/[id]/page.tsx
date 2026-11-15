@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import Navigation from "@/components/Navigation";
-import { ArrowLeft, Copy, Check, Terminal as TerminalIcon, ShieldAlert, ShieldCheck, Clock, User, Share2, Eye, Lock } from "lucide-react";
+import { ArrowLeft, Check, Terminal as TerminalIcon, ShieldCheck, Share2 } from "lucide-react";
 import EscrowProgressStepper, { EscrowStage } from "@/components/EscrowProgressStepper";
 import MerkleProofModal from "@/components/MerkleProofModal";
 import { PayloadDecryptor } from "@/components/PayloadDecryptor";
@@ -52,7 +52,6 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
   const [copiedRoot, setCopiedRoot] = useState(false);
 
   // Modal State for Merkle Proof Inspection
-  const [activeModalClaim, setActiveModalClaim] = useState<DisclosureClaim | null>(null);
   const [activeModalIndex, setActiveModalIndex] = useState<number>(0);
   const [isProofModalOpen, setIsProofModalOpen] = useState(false);
 
@@ -217,8 +216,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
     }
   };
 
-  const openClaimModal = (claim: DisclosureClaim, index: number) => {
-    setActiveModalClaim(claim);
+  const openClaimModal = (index: number) => {
     setActiveModalIndex(index);
     setIsProofModalOpen(true);
   };
@@ -390,15 +388,12 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
 
             {/* Block Matrix Cards */}
             <div className="space-y-3">
-              {effectiveClaims.map((claim, idx) => {
-                const isProofAvailable = Array.isArray((claim as any).proof) && (claim as any).proof.length >= 0;
-
-                return (
-                  <div
-                    key={idx}
-                    onClick={() => openClaimModal(claim, idx)}
-                    className="p-4 rounded border border-[#232732] bg-[#14171E] hover:border-[#3B4252] transition-colors cursor-pointer group space-y-2.5"
-                  >
+              {effectiveClaims.map((claim, idx) => (
+                <div
+                  key={idx}
+                  onClick={() => openClaimModal(idx)}
+                  className="p-4 rounded border border-[#232732] bg-[#14171E] hover:border-[#3B4252] transition-colors cursor-pointer group space-y-2.5"
+                >
                     <div className="flex items-center justify-between font-mono text-[11px]">
                       <div className="flex items-center gap-2">
                         <span className="text-[#848B98]">BLOCK #{idx}</span>
@@ -420,8 +415,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
                       <span className="text-[#16A34A] text-[10px]">Verified Leaf Structure</span>
                     </div>
                   </div>
-                );
-              })}
+                ))}
             </div>
 
           </div>

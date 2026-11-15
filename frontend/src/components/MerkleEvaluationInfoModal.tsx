@@ -8,12 +8,8 @@ import {
   Copy, 
   Check, 
   Binary, 
-  Layers, 
   Lock, 
-  Key, 
   ExternalLink, 
-  CheckCircle2, 
-  AlertTriangle,
   FileCheck,
   Cpu
 } from "lucide-react";

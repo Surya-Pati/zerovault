@@ -1,4 +1,4 @@
-import { BrowserProvider, JsonRpcProvider, Contract, parseEther, formatEther, keccak256, toUtf8Bytes, getAddress, hashMessage, SigningKey, isHexString, getBytes } from 'ethers';
+import { BrowserProvider, JsonRpcProvider, Contract, parseEther, formatEther, keccak256, toUtf8Bytes, hashMessage, SigningKey, isHexString, getBytes } from 'ethers';
 
 export const DEFAULT_ZEROVAULT_ADDRESS = process.env.NEXT_PUBLIC_ZEROVAULT_ADDRESS || '0x66AfE225958aF56E6fB99995897ED3EF17013185';
 export const DEFAULT_RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || 'http://127.0.0.1:8545';

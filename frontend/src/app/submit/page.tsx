@@ -1,16 +1,9 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Navigation from "@/components/Navigation";
 import {
-  ShieldAlert,
-  FileText,
-  DollarSign,
-  Tag,
-  Shield,
-  UploadCloud,
   CheckCircle2,
   Copy,
   AlertTriangle,
@@ -28,7 +21,6 @@ import { computeKeyHash } from "@/lib/contracts";
 import { useAuth } from "@/providers/AuthProvider";
 
 export default function SubmitListingPage() {
-  const router = useRouter();
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -90,6 +82,13 @@ export default function SubmitListingPage() {
       blocks.some((b) => !b.content.trim())
     ) {
       setError("Please fill out all specification fields and code blocks.");
+      setLoading(false);
+      return;
+    }
+
+    const priceNum = parseFloat(formData.priceEth);
+    if (Number.isNaN(priceNum) || priceNum < 0.001) {
+      setError("Asking price must be at least 0.001 ETH (protocol minimum).");
       setLoading(false);
       return;
     }
@@ -411,7 +410,7 @@ export default function SubmitListingPage() {
                     [02] Payload Blocks & Partial Disclosure Matrix
                   </h2>
                   <p className="text-[11px] text-[#848B98] font-sans mt-0.5">
-                    Toggle "Reveal as Proof" to provide verifiable Merkle leaves before payment. Unrevealed blocks remain AES-encrypted ciphertext.
+                    Toggle &quot;Reveal as Proof&quot; to provide verifiable Merkle leaves before payment. Unrevealed blocks remain AES-encrypted ciphertext.
                   </p>
                 </div>
                 <button

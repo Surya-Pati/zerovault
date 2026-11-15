@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import { 
   CheckCircle2, 
   Clock, 
@@ -9,8 +8,6 @@ import {
   Unlock, 
   AlertTriangle, 
   AlertOctagon, 
-  Key, 
-  Coins, 
   Download, 
   ShieldCheck, 
   User, 
@@ -61,7 +58,6 @@ export default function EscrowProgressStepper({
   merkleRoot,
   keyHash,
   priceEth,
-  sellerAddress,
   vendorAddress,
   currentStage = "COMMITTED",
   commitTimestamp = Math.floor((Date.now() - 86400000) / 1000),
@@ -74,7 +70,6 @@ export default function EscrowProgressStepper({
   const activeRole = user?.role === 'BUYER' ? 'BUYER' : 'SELLER';
 
   const [decryptionKeyInput, setDecryptionKeyInput] = useState<string>("");
-  const [bountyEthInput, setBountyEthInput] = useState<string>(priceEth || "1.5");
   
   const [txState, setTxState] = useState<{
     isLoading: boolean;
@@ -486,10 +481,10 @@ export default function EscrowProgressStepper({
           <div className="p-4 rounded border border-[#DC2626]/40 bg-[#170E10] text-[#F0F2F5] text-xs font-mono space-y-1.5">
             <div className="flex items-center gap-2 text-[#DC2626] font-semibold">
               <AlertTriangle className="w-4 h-4 shrink-0" />
-              <span>DEAD MAN'S SWITCH TRIGGERED (EXPIRED)</span>
+              <span>DEAD MAN&apos;S SWITCH TRIGGERED (EXPIRED)</span>
             </div>
             <p className="text-[#848B98] leading-relaxed">
-              The buyer did not lock the required bounty within the commitment window. The seller has triggered the Dead Man's Switch on-chain; this vault is permanently closed.
+              The buyer did not lock the required bounty within the commitment window. The seller has triggered the Dead Man&apos;s Switch on-chain; this vault is permanently closed.
             </p>
           </div>
         )}
@@ -502,7 +497,7 @@ export default function EscrowProgressStepper({
               <span>BOUNTY RECLAIMED (REFUNDED)</span>
             </div>
             <p className="text-[#848B98] leading-relaxed">
-              The seller did not reveal a valid AES decryption key within the active reclaim window. The locked bounty of {priceEth} ETH has been refunded to the buyer's on-chain ledger.
+              The seller did not reveal a valid AES decryption key within the active reclaim window. The locked bounty of {priceEth} ETH has been refunded to the buyer&apos;s on-chain ledger.
             </p>
           </div>
         )}

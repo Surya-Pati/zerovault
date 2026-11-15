@@ -4,10 +4,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { 
   Clock, 
   PauseCircle, 
-  CheckCircle2, 
   AlertTriangle, 
   ShieldCheck, 
-  ShieldAlert,
   Info 
 } from "lucide-react";
 import { 
@@ -46,7 +44,7 @@ export default function EscrowTimeoutCountdown({
     pausedAt: 0,
   });
 
-  const [tick, setTick] = useState(0);
+  const [, setTick] = useState(0);
   const onTimeoutStateChangeRef = useRef(onTimeoutStateChange);
   onTimeoutStateChangeRef.current = onTimeoutStateChange;
 

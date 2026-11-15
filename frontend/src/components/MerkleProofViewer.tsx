@@ -4,27 +4,19 @@ import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   ShieldCheck, 
-  ShieldAlert, 
   CheckCircle2, 
   XCircle, 
   Copy, 
   Check, 
-  Key, 
-  Terminal, 
   Layers, 
   Hash, 
   RefreshCw,
   Search,
-  ArrowRight,
   Code2,
-  GitCommit,
-  AlertTriangle,
-  Lock,
   Binary,
   Info,
   HelpCircle
 } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -176,7 +168,7 @@ export default function MerkleProofViewer({
               .map((s) => s.trim().replace(/['"]/g, ""))
               .filter((s) => s.startsWith("0x"));
           }
-        } catch (parseErr) {
+        } catch {
           throw new Error("Invalid proof array format. Expected JSON array of 32-byte hex strings.");
         }
 
@@ -493,7 +485,7 @@ export default function MerkleProofViewer({
                   <div className="p-6 rounded-lg border border-[#1E2330] bg-[#0A0C10] text-center space-y-2">
                     <Layers className="w-6 h-6 text-[#475569] mx-auto" />
                     <p className="text-xs text-[#94A3B8] font-sans">
-                      Click <strong className="text-[#F1F5F9]">"Evaluate Cryptographic Proof"</strong> below to trace the complete hash chain from the discrete leaf up to the on-chain Merkle Root.
+                      Click <strong className="text-[#F1F5F9]">&quot;Evaluate Cryptographic Proof&quot;</strong> below to trace the complete hash chain from the discrete leaf up to the on-chain Merkle Root.
                     </p>
                   </div>
                 )}

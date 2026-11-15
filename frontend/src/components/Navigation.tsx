@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/providers/AuthProvider";
 import { EXPECTED_NETWORK_NAME } from "@/lib/contracts";
-import { Shield, Copy, Check, LogOut, Terminal, ExternalLink } from "lucide-react";
+import { Shield, Copy, Check, LogOut } from "lucide-react";
 
 export default function Navigation() {
   const pathname = usePathname();

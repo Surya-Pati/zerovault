@@ -22,8 +22,15 @@ const sellerToken = jwt.sign(
   { expiresIn: '1h' }
 );
 
+const unverifiedToken = jwt.sign(
+  { userId: 'unverified-789', role: 'BUYER' },
+  JWT_SECRET,
+  { expiresIn: '1h' }
+);
+
 const buyerCookie = `session=${validToken}`;
 const sellerCookie = `session=${sellerToken}`;
+const unverifiedBuyerCookie = `session=${unverifiedToken}`;
 
 async function getCsrfForSession(sessionCookie: string) {
   const res = await request(app)
@@ -49,6 +56,14 @@ jest.mock('@prisma/client', () => {
     id: 'seller-456',
     email: 'seller@zerovault.io',
     role: 'BUYER',
+    verified_buyer: true,
+  };
+
+  const mockUnverifiedUser = {
+    id: 'unverified-789',
+    email: 'unverified@zerovault.io',
+    role: 'BUYER',
+    verified_buyer: false,
   };
 
   const mockListing = {
@@ -107,6 +122,7 @@ jest.mock('@prisma/client', () => {
         findUnique: jest.fn().mockImplementation(({ where }) => {
           if (where.id === 'user-123') return Promise.resolve(mockUser);
           if (where.id === 'seller-456') return Promise.resolve(mockSeller);
+          if (where.id === 'unverified-789') return Promise.resolve(mockUnverifiedUser);
           return Promise.resolve(null);
         }),
       },
@@ -247,6 +263,18 @@ describe('Module 4: API Gateway & Web3 Bridge Tests', () => {
 
       expect(res.status).toBe(403);
       expect(res.body.error).toBe('Cannot fund your own listing');
+    });
+
+    it('should return 403 when unverified buyer attempts to fund escrow', async () => {
+      const { token, csrfCookie } = await getCsrfForSession(unverifiedBuyerCookie);
+      const res = await request(app)
+        .post('/api/escrow/fund')
+        .set('x-csrf-token', token)
+        .set('Cookie', [csrfCookie, unverifiedBuyerCookie])
+        .send({ listing_id: 'listing-123', tx_hash: '0xfund123' });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe('Only admin-verified buyers can fund escrows');
     });
 
     it('should update escrow state and return 200 on valid funding request', async () => {

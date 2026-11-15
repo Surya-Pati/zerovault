@@ -3,8 +3,8 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import Navigation from "@/components/Navigation";
-import { Shield, CheckCircle2, XCircle, ArrowUpRight, Lock, Key, FileCheck, Layers, Info } from "lucide-react";
-import { hashLeaf, verifyProof } from "@/lib/crypto";
+import { CheckCircle2, XCircle, Info } from "lucide-react";
+import { hashLeaf } from "@/lib/crypto";
 import { useAuth } from "@/providers/AuthProvider";
 import MerkleEvaluationInfoModal from "@/components/MerkleEvaluationInfoModal";
 
@@ -115,10 +115,10 @@ export default function HomePage() {
                 <div className="p-3 rounded border border-[#232732] bg-[#0C0E12] space-y-1">
                   <span className="text-[10px] text-[#848B98] uppercase">Target Claim Leaf</span>
                   <div className="text-[#F0F2F5] truncate">
-                    key: <span className="text-[#2563EB]">"{sampleKey}"</span>
+                    key: <span className="text-[#2563EB]">&quot;{sampleKey}&quot;</span>
                   </div>
                   <div className="text-[#9AA2B2] truncate text-[11px]">
-                    val: "{sampleValue}"
+                    val: &quot;{sampleValue}&quot;
                   </div>
                 </div>
 

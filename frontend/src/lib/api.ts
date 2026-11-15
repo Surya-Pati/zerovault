@@ -17,7 +17,7 @@ export const fetchApi = async (endpoint: string, options: RequestInit = {}) => {
         const { csrfToken } = await csrfRes.json();
         headers.set('x-csrf-token', csrfToken);
       }
-    } catch (e) {
+    } catch {
       // CSRF fetch failed — request will likely fail with CSRF error
       console.warn('Failed to fetch CSRF token');
     }

@@ -49,7 +49,7 @@ export function AuthProvider({ children, hasSession }: { children: React.ReactNo
       } else {
         setUser(null);
       }
-    } catch (err) {
+    } catch {
       setUser(null);
     } finally {
       setLoading(false);
