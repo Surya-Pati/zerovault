@@ -412,6 +412,7 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
               sellerAddress={listing.seller_address}
               vendorAddress={listing.vendor_address}
               currentStage={currentStage}
+              commitTimestamp={listing.created_at ? Math.floor(new Date(listing.created_at).getTime() / 1000) : undefined}
               decryptionKey={listing.decryption_key}
               onStageChange={handleStageChange}
               onDownloadPayload={handleDownloadPayload}

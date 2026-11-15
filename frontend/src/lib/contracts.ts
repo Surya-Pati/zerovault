@@ -23,6 +23,9 @@ export const ZEROVAULT_ABI = [
   "function unpause() external",
   "function paused() view returns (bool)",
   "function totalPausedTime() view returns (uint256)",
+  "function pausedAt() view returns (uint256)",
+  "function COMMIT_TIMEOUT() view returns (uint256)",
+  "function RECLAIM_TIMEOUT() view returns (uint256)",
   "function getActiveLockElapsed(bytes32) view returns (uint256)",
   "function withdrawRefund() external",
   "function refunds(address) view returns (uint256)",
@@ -419,4 +422,72 @@ export async function withdrawRefundOnChain(contractAddress: string = DEFAULT_ZE
   const receipt = await tx.wait();
   if (receipt && receipt.status === 0) throw new Error("Transaction reverted on-chain (withdrawRefund).");
   return receipt;
+}
+
+export interface ContractTimeoutConfig {
+  commitTimeout: number;
+  reclaimTimeout: number;
+  totalPausedTime: number;
+  isPaused: boolean;
+  pausedAt: number;
+}
+
+const timeoutConfigCache = new Map<string, { config: ContractTimeoutConfig; timestamp: number }>();
+const CACHE_TTL_MS = 10000;
+
+export async function fetchContractTimeoutConfig(
+  contractAddress: string = DEFAULT_ZEROVAULT_ADDRESS,
+  forceRefresh: boolean = false
+): Promise<ContractTimeoutConfig> {
+  const normalizedAddr = contractAddress.toLowerCase();
+  const now = Date.now();
+  const cached = timeoutConfigCache.get(normalizedAddr);
+  if (!forceRefresh && cached && now - cached.timestamp < CACHE_TTL_MS) {
+    return cached.config;
+  }
+
+  // Fallbacks: default to 15s for demo mode, or 7/14 days in production
+  const fallbackCommit = Number(process.env.NEXT_PUBLIC_COMMIT_TIMEOUT || 15);
+  const fallbackReclaim = Number(process.env.NEXT_PUBLIC_RECLAIM_TIMEOUT || 15);
+
+  try {
+    const contract = await getZeroVaultContract(contractAddress, false);
+    if (!contract) {
+      return {
+        commitTimeout: fallbackCommit,
+        reclaimTimeout: fallbackReclaim,
+        totalPausedTime: 0,
+        isPaused: false,
+        pausedAt: 0,
+      };
+    }
+
+    const [commitTimeoutRaw, reclaimTimeoutRaw, totalPausedTimeRaw, isPausedRaw, pausedAtRaw] = await Promise.all([
+      contract.COMMIT_TIMEOUT().catch(() => BigInt(fallbackCommit)),
+      contract.RECLAIM_TIMEOUT().catch(() => BigInt(fallbackReclaim)),
+      contract.totalPausedTime().catch(() => BigInt(0)),
+      contract.paused().catch(() => false),
+      contract.pausedAt().catch(() => BigInt(0)),
+    ]);
+
+    const config: ContractTimeoutConfig = {
+      commitTimeout: Number(commitTimeoutRaw),
+      reclaimTimeout: Number(reclaimTimeoutRaw),
+      totalPausedTime: Number(totalPausedTimeRaw),
+      isPaused: Boolean(isPausedRaw),
+      pausedAt: Number(pausedAtRaw),
+    };
+
+    timeoutConfigCache.set(normalizedAddr, { config, timestamp: now });
+    return config;
+  } catch (err) {
+    console.warn("Failed to fetch contract timeout config; using fallbacks:", err);
+    return {
+      commitTimeout: fallbackCommit,
+      reclaimTimeout: fallbackReclaim,
+      totalPausedTime: 0,
+      isPaused: false,
+      pausedAt: 0,
+    };
+  }
 }

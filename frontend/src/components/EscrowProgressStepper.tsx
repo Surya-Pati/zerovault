@@ -36,6 +36,8 @@ import { encryptECIES } from "@/lib/crypto";
 import { keccak256, toUtf8Bytes } from "ethers";
 import { fetchApi } from "@/lib/api";
 import { useAuth } from "@/providers/AuthProvider";
+import EscrowTimeoutCountdown from "./EscrowTimeoutCountdown";
+import { EscrowTimeoutCalculation } from "@zerovault/shared";
 
 export type EscrowStage = "CREATED" | "COMMITTED" | "PROOF_VERIFIED" | "BOUNTY_LOCKED" | "SETTLED" | "EXPIRED" | "REFUNDED";
 
@@ -62,7 +64,7 @@ export default function EscrowProgressStepper({
   sellerAddress,
   vendorAddress,
   currentStage = "COMMITTED",
-  commitTimestamp = Date.now() - 86400000,
+  commitTimestamp = Math.floor((Date.now() - 86400000) / 1000),
   bountyLockedAt,
   decryptionKey,
   onStageChange,
@@ -83,6 +85,8 @@ export default function EscrowProgressStepper({
 
   const [onChainState, setOnChainState] = useState<any>(null);
   const [withdrawableBalance, setWithdrawableBalance] = useState<string>("0");
+  const [deadManTimeoutState, setDeadManTimeoutState] = useState<EscrowTimeoutCalculation | null>(null);
+  const [reclaimTimeoutState, setReclaimTimeoutState] = useState<EscrowTimeoutCalculation | null>(null);
 
   const refreshWithdrawable = React.useCallback(async () => {
     if (user?.wallet_address) {
@@ -485,7 +489,7 @@ export default function EscrowProgressStepper({
               <span>DEAD MAN'S SWITCH TRIGGERED (EXPIRED)</span>
             </div>
             <p className="text-[#848B98] leading-relaxed">
-              The buyer did not lock the required bounty within the commitment window (Demo Mode: 1s timeout). The seller has triggered the Dead Man's Switch on-chain; this vault is permanently closed.
+              The buyer did not lock the required bounty within the commitment window. The seller has triggered the Dead Man's Switch on-chain; this vault is permanently closed.
             </p>
           </div>
         )}
@@ -498,7 +502,7 @@ export default function EscrowProgressStepper({
               <span>BOUNTY RECLAIMED (REFUNDED)</span>
             </div>
             <p className="text-[#848B98] leading-relaxed">
-              The seller did not reveal a valid AES decryption key within the timeout window (Demo Mode: 1s timeout). The locked bounty of {priceEth} ETH has been refunded to the buyer's on-chain ledger.
+              The seller did not reveal a valid AES decryption key within the active reclaim window. The locked bounty of {priceEth} ETH has been refunded to the buyer's on-chain ledger.
             </p>
           </div>
         )}
@@ -630,22 +634,45 @@ export default function EscrowProgressStepper({
               )}
 
               {currentStage === "BOUNTY_LOCKED" && (
-                <div className="space-y-3 p-3.5 rounded border border-[#D97706]/40 bg-[#17130B] font-mono text-xs">
-                  <div className="flex items-center justify-between text-[#D97706]">
-                    <span className="flex items-center gap-1.5 font-semibold">
-                      <Clock className="w-3.5 h-3.5" /> Awaiting seller key reveal
-                    </span>
-                    <span className="text-[10px] text-[#848B98]">Demo timeout: 1s</span>
-                  </div>
-                  <p className="text-[11px] text-[#848B98] font-sans">
-                    Bounty of {priceEth} ETH is locked in escrow. If seller fails to reveal within timeout, you can reclaim your funds below.
-                  </p>
+                <div className="space-y-3">
+                  <EscrowTimeoutCountdown
+                    merkleRoot={merkleRoot}
+                    mode="BUYER_RECLAIM"
+                    bountyLockedAt={onChainState?.bountyLockedAt || bountyLockedAt}
+                    pauseOffset={onChainState?.pauseOffset || 0}
+                    onTimeoutStateChange={setReclaimTimeoutState}
+                  />
+
                   <button
                     onClick={handleReclaimBounty}
-                    disabled={txState.isLoading}
-                    className="w-full py-2 px-3 rounded border border-[#D97706]/50 bg-[#1E190E] hover:bg-[#2A2312] text-[#D97706] text-xs font-mono transition-colors"
+                    disabled={txState.isLoading || !reclaimTimeoutState?.canExecuteAction}
+                    className={`w-full py-2.5 px-4 rounded border text-xs font-mono font-semibold transition-all flex items-center justify-center gap-2 ${
+                      reclaimTimeoutState?.canExecuteAction
+                        ? "border-[#D97706] bg-[#2A1E0E] text-[#F59E0B] hover:bg-[#3B2B15] cursor-pointer shadow-lg shadow-[#D97706]/20"
+                        : "border-[#1E2330] bg-[#0A0C10] text-[#64748B] cursor-not-allowed opacity-60"
+                    }`}
+                    title={
+                      reclaimTimeoutState?.status === "PAUSED"
+                        ? "Circuit breaker active: Smart contract is paused. Reclaim is locked."
+                        : !reclaimTimeoutState?.isTimeoutReached
+                        ? `Locked while seller reveal window is active (${reclaimTimeoutState?.formattedRemaining || "waiting..."})`
+                        : "Seller failed to reveal key! Click to reclaim your bounty ETH."
+                    }
                   >
-                    {txState.isLoading ? "Reclaiming bounty..." : "Reclaim bounty (timeout expired)"}
+                    {txState.isLoading ? (
+                      <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <AlertOctagon className="w-3.5 h-3.5" />
+                    )}
+                    <span>
+                      {txState.isLoading
+                        ? "Reclaiming bounty on-chain..."
+                        : reclaimTimeoutState?.status === "PAUSED"
+                        ? "Reclaim Paused (Clock Frozen)"
+                        : reclaimTimeoutState?.canExecuteAction
+                        ? `Reclaim Bounty Now (${priceEth} ETH)`
+                        : `Reclaim Locked (${reclaimTimeoutState?.formattedRemaining || "calculating..."})`}
+                    </span>
                   </button>
                 </div>
               )}
@@ -735,17 +762,45 @@ export default function EscrowProgressStepper({
                       </button>
                     </div>
                   ) : (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-[#848B98] text-[11px]">
-                        <span>Root committed on-chain</span>
-                        <span>Demo timeout: 1s</span>
-                      </div>
+                    <div className="space-y-3">
+                      <EscrowTimeoutCountdown
+                        merkleRoot={merkleRoot}
+                        mode="DEAD_MANS_SWITCH"
+                        commitTimestamp={onChainState?.commitTimestamp || commitTimestamp}
+                        pauseOffset={onChainState?.pauseOffset || 0}
+                        onTimeoutStateChange={setDeadManTimeoutState}
+                      />
+
                       <button
                         onClick={handleTriggerDeadMan}
-                        disabled={txState.isLoading}
-                        className="w-full py-2 px-3 rounded border border-[#D97706]/50 bg-[#1E190E] hover:bg-[#2A2312] text-[#D97706] text-xs font-mono transition-colors"
+                        disabled={txState.isLoading || !deadManTimeoutState?.canExecuteAction}
+                        className={`w-full py-2.5 px-4 rounded border text-xs font-mono font-semibold transition-all flex items-center justify-center gap-2 ${
+                          deadManTimeoutState?.canExecuteAction
+                            ? "border-[#EF4444] bg-[#2A1215] text-[#EF4444] hover:bg-[#3D1A1E] cursor-pointer shadow-lg shadow-[#EF4444]/20"
+                            : "border-[#1E2330] bg-[#0A0C10] text-[#64748B] cursor-not-allowed opacity-60"
+                        }`}
+                        title={
+                          deadManTimeoutState?.status === "PAUSED"
+                            ? "Circuit breaker active: Smart contract is paused. Dead man's switch is locked."
+                            : !deadManTimeoutState?.isTimeoutReached
+                            ? `Locked until commitment window lapses (${deadManTimeoutState?.formattedRemaining || "waiting..."})`
+                            : "Commitment window lapsed! Click to permanently expire vault on-chain."
+                        }
                       >
-                        {txState.isLoading ? "Triggering Dead Man's Switch..." : "Trigger Dead Man's Switch (timeout expired)"}
+                        {txState.isLoading ? (
+                          <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <AlertTriangle className="w-3.5 h-3.5" />
+                        )}
+                        <span>
+                          {txState.isLoading
+                            ? "Triggering Dead Man's Switch..."
+                            : deadManTimeoutState?.status === "PAUSED"
+                            ? "Dead Man's Switch Paused (Clock Frozen)"
+                            : deadManTimeoutState?.canExecuteAction
+                            ? "Trigger Dead Man's Switch Now (Vault Expired)"
+                            : `Dead Man's Switch Locked (${deadManTimeoutState?.formattedRemaining || "calculating..."})`}
+                        </span>
                       </button>
                     </div>
                   )}
@@ -762,6 +817,14 @@ export default function EscrowProgressStepper({
                       Enter plaintext AES key. Contract validates Keccak256 hash and transfers bounty atomically.
                     </p>
                   </div>
+
+                  <EscrowTimeoutCountdown
+                    merkleRoot={merkleRoot}
+                    mode="BUYER_RECLAIM"
+                    bountyLockedAt={onChainState?.bountyLockedAt || bountyLockedAt}
+                    pauseOffset={onChainState?.pauseOffset || 0}
+                    compact={true}
+                  />
 
                   {Number(onChainState?.bountyAmountEth) < Number(priceEth) && (
                     <div className="p-3 rounded border border-[#DC2626]/50 bg-[#170E10] text-[#DC2626] text-xs space-y-1">
