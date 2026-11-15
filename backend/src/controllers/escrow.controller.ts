@@ -91,6 +91,11 @@ export const fundEscrow = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Vulnerability listing not found' });
     }
 
+    // Security Check: Sellers cannot fund their own listings
+    if (listing.seller_id === user.id) {
+      return res.status(403).json({ error: 'Cannot fund your own listing' });
+    }
+
     const defaultContractAddress =
       process.env.ZEROVAULT_CONTRACT_ADDRESS || '0x0000000000000000000000000000000000000000';
     const contractAddress = data.contract_address || defaultContractAddress;
@@ -238,7 +243,15 @@ export const revealEscrow = async (req: Request, res: Response) => {
       let matchedRoot = false;
       for (const log of receipt.logs) {
         try {
-          const parsed = settlementIfaceV2.parseLog(log) || settlementIfaceV1.parseLog(log);
+          let parsed: any = null;
+          try {
+            parsed = settlementIfaceV2.parseLog(log);
+          } catch {}
+          if (!parsed) {
+            try {
+              parsed = settlementIfaceV1.parseLog(log);
+            } catch {}
+          }
           if (parsed && parsed.name === 'SettlementConfirmed' && parsed.args.merkleRoot.toLowerCase() === listing.merkle_root.toLowerCase()) {
             matchedRoot = true;
             break;
@@ -260,7 +273,7 @@ export const revealEscrow = async (req: Request, res: Response) => {
     // Verify that the provided decryptionKey matches the listing's committed key_hash BEFORE any database write
     if (listing.key_hash) {
       const cleanKey = decryptionKey.trim().replace(/^0x/i, '').toLowerCase();
-      const hex = cleanKey.startsWith('0x') ? cleanKey : `0x${cleanKey}`;
+      const hex = `0x${cleanKey}`;
       const rawByteHash = isHexString(hex, 32) ? keccak256(getBytes(hex)).toLowerCase() : null;
       const utf8Hash = keccak256(toUtf8Bytes(cleanKey)).toLowerCase();
       const cleanListingKeyHash = (listing.key_hash.startsWith('0x') ? listing.key_hash : `0x${listing.key_hash}`).toLowerCase();

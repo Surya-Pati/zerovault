@@ -2,17 +2,14 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  Lock,
   Unlock,
   Download,
-  Key,
   ShieldCheck,
   AlertCircle,
   Eye,
   EyeOff,
   Copy,
   Check,
-  FileText,
   RefreshCw,
 } from 'lucide-react';
 import { decryptPayload, decryptECIES } from '@/lib/crypto';
@@ -37,7 +34,6 @@ export const PayloadDecryptor: React.FC<PayloadDecryptorProps> = ({
   const [decryptionKey, setDecryptionKey] = useState(initialDecryptionKey);
   const [iv, setIv] = useState(initialIv);
   const [ciphertext, setCiphertext] = useState('');
-  const [rawPayloadRaw, setRawPayloadRaw] = useState('');
 
   const [showKey, setShowKey] = useState(false);
   const [buyerPrivateKey, setBuyerPrivateKey] = useState('');
@@ -92,7 +88,6 @@ export const PayloadDecryptor: React.FC<PayloadDecryptorProps> = ({
       }
 
       const textData = await response.text();
-      setRawPayloadRaw(textData);
 
       try {
         const parsed = JSON.parse(textData);
@@ -148,8 +143,12 @@ export const PayloadDecryptor: React.FC<PayloadDecryptorProps> = ({
       // and user enters their buyer private key (or if key needs ECIES unwrapping):
       const cleanKey = resolvedAesKey.startsWith('0x') ? resolvedAesKey.slice(2) : resolvedAesKey;
       if (cleanKey.length >= 122) {
-        // Attempt ECIES unwrapping if buyer private key is provided via input or window
-        const potentialPrivKey = buyerPrivateKey.trim() || (window as any).__buyerPrivateKey || '';
+        // Attempt ECIES unwrapping if buyer private key is provided via input or window (dev only)
+        const devPrivKey =
+          typeof window !== 'undefined' && process.env.NODE_ENV !== 'production'
+            ? (window as any).__buyerPrivateKey
+            : '';
+        const potentialPrivKey = buyerPrivateKey.trim() || devPrivKey || '';
         if (potentialPrivKey) {
           try {
             resolvedAesKey = await decryptECIES(potentialPrivKey, resolvedAesKey);

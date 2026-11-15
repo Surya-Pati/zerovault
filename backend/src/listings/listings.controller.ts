@@ -1,8 +1,6 @@
 import { Request, Response } from 'express';
 import { PrismaClient, ListingStatus } from '@prisma/client';
-import { MerkleService } from '../services/merkle';
 import { migratePayload } from '../services/payloadWorker';
-import { encryptPayload } from '@zerovault/shared';
 import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
@@ -22,6 +20,9 @@ const settlementIfaceV2 = new Interface([
 ]);
 const settlementIfaceV1 = new Interface([
   'event SettlementConfirmed(bytes32 indexed merkleRoot, bytes32 keyHash)'
+]);
+const bountyReclaimedIface = new Interface([
+  'event BountyReclaimed(bytes32 indexed merkleRoot)'
 ]);
 
 // ─── Zod Validation Schemas ─────────────────────────────────────────
@@ -282,21 +283,11 @@ export const commitListing = async (req: Request, res: Response) => {
       data: { status: ListingStatus.COMMITTED },
     });
 
-    const defaultContract = process.env.ZEROVAULT_CONTRACT_ADDRESS || '0x5FbDB2315678afecb367f032d93F642f64180aa3';
-    let escrow = await prisma.escrowTransaction.findFirst({ where: { listing_id: id } });
+    const escrow = await prisma.escrowTransaction.findFirst({ where: { listing_id: id } });
     if (escrow) {
       await prisma.escrowTransaction.update({
         where: { id: escrow.id },
         data: { status: ListingStatus.COMMITTED },
-      });
-    } else {
-      await prisma.escrowTransaction.create({
-        data: {
-          listing_id: id,
-          buyer_id: listing.seller_id,
-          contract_address: defaultContract,
-          status: ListingStatus.COMMITTED,
-        },
       });
     }
 
@@ -335,10 +326,9 @@ export const fundEscrow = async (req: Request, res: Response) => {
     }
 
     // Security Check: Sellers cannot fund their own listings
-    // TEMPORARILY DISABLED for local testing so you can test both roles simultaneously!
-    // if (listing.seller_id === user.id) {
-    //   return res.status(403).json({ error: 'Cannot fund your own listing' });
-    // }
+    if (listing.seller_id === user.id) {
+      return res.status(403).json({ error: 'Cannot fund your own listing' });
+    }
 
     // Verify transaction on-chain
     const rpcUrl = process.env.RPC_URL || 'http://127.0.0.1:8545';
@@ -551,14 +541,27 @@ export const reclaimEscrow = async (req: Request, res: Response) => {
     const listing = await prisma.vulnerabilityListing.findUnique({ where: { id } });
     if (!listing) return res.status(404).json({ error: 'Listing not found' });
 
+    // Authorization: only the buyer/vendor who locked bounty or an administrator can reclaim
+    const escrow = await prisma.escrowTransaction.findUnique({ where: { listing_id: id } });
+    const isBuyer =
+      (escrow && escrow.buyer_id === user.id) ||
+      Boolean(
+        user.wallet_address &&
+        listing.vendor_address &&
+        user.wallet_address.toLowerCase() === listing.vendor_address.toLowerCase()
+      );
+
+    if (!isBuyer && user.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'Only the buyer/vendor or an administrator can reclaim the bounty' });
+    }
+
     // Verify transaction on-chain
     const rpcUrl = process.env.RPC_URL || 'http://127.0.0.1:8545';
     const contractAddr = process.env.ZEROVAULT_CONTRACT_ADDRESS;
     if (!contractAddr) {
       return res.status(500).json({ error: 'Server misconfiguration: ZEROVAULT_CONTRACT_ADDRESS not set' });
     }
-    const ethers = await import('ethers');
-    const providerInstance = new ethers.JsonRpcProvider(rpcUrl);
+    const providerInstance = new JsonRpcProvider(rpcUrl);
     
     let receipt = null;
     for (let i = 0; i < 5; i++) {
@@ -577,14 +580,10 @@ export const reclaimEscrow = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Transaction did not emit any events.' });
     }
 
-    const ifaceInstance = new ethers.Interface([
-      'event BountyReclaimed(bytes32 indexed merkleRoot)'
-    ]);
-    
     let matchedRoot = false;
     for (const log of receipt.logs) {
       try {
-        const parsed = ifaceInstance.parseLog(log);
+        const parsed = bountyReclaimedIface.parseLog(log);
         if (parsed && parsed.name === 'BountyReclaimed' && parsed.args.merkleRoot.toLowerCase() === listing.merkle_root.toLowerCase()) {
           matchedRoot = true;
           break;
@@ -601,7 +600,7 @@ export const reclaimEscrow = async (req: Request, res: Response) => {
       data: { status: ListingStatus.REFUNDED },
     });
 
-    const escrow = await prisma.escrowTransaction.upsert({
+    await prisma.escrowTransaction.upsert({
       where: { listing_id: id },
       update: {
         status: ListingStatus.REFUNDED,
@@ -679,7 +678,15 @@ export const settleEscrow = async (req: Request, res: Response) => {
     let matchedRoot = false;
     for (const log of receipt.logs) {
       try {
-        const parsed = settlementIfaceV2.parseLog(log) || settlementIfaceV1.parseLog(log);
+        let parsed: any = null;
+        try {
+          parsed = settlementIfaceV2.parseLog(log);
+        } catch {}
+        if (!parsed) {
+          try {
+            parsed = settlementIfaceV1.parseLog(log);
+          } catch {}
+        }
         if (parsed && parsed.name === 'SettlementConfirmed' && parsed.args.merkleRoot.toLowerCase() === listing.merkle_root.toLowerCase()) {
           matchedRoot = true;
           break;
@@ -693,7 +700,7 @@ export const settleEscrow = async (req: Request, res: Response) => {
 
     // Verify that the provided decryptionKey matches the listing's committed key_hash BEFORE any database write
     const cleanKey = decryptionKey.trim().replace(/^0x/i, '').toLowerCase();
-    const hex = cleanKey.startsWith('0x') ? cleanKey : `0x${cleanKey}`;
+    const hex = `0x${cleanKey}`;
     const rawByteHash = isHexString(hex, 32) ? keccak256(getBytes(hex)).toLowerCase() : null;
     const utf8Hash = keccak256(toUtf8Bytes(cleanKey)).toLowerCase();
     const cleanListingKeyHash = listing.key_hash 
@@ -768,7 +775,7 @@ export const downloadPayload = async (req: Request, res: Response) => {
     // Authorization: purchasing buyer, original seller, or system admin
     const isSeller = listing.seller_id === user.id;
     const isPurchasingBuyer =
-      (listing.escrow && listing.escrow.buyer_id === user.id) ||
+      (listing.escrow && listing.escrow.buyer_id === user.id && listing.seller_id !== user.id) ||
       Boolean(listing.escrow?.buyer?.wallet_address && user.wallet_address && listing.escrow.buyer.wallet_address.toLowerCase() === user.wallet_address.toLowerCase()) ||
       Boolean(listing.vendor_address && user.wallet_address && listing.vendor_address.toLowerCase() === user.wallet_address.toLowerCase());
     const isAdmin = user.role === 'ADMIN';

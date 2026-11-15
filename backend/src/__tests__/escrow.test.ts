@@ -16,6 +16,12 @@ const validToken = jwt.sign(
   { expiresIn: '1h' }
 );
 
+const sellerToken = jwt.sign(
+  { userId: 'seller-456', role: 'BUYER' },
+  JWT_SECRET,
+  { expiresIn: '1h' }
+);
+
 // Mock Prisma Client
 jest.mock('@prisma/client', () => {
   const mockUser = {
@@ -25,9 +31,15 @@ jest.mock('@prisma/client', () => {
     verified_buyer: true,
   };
 
+  const mockSeller = {
+    id: 'seller-456',
+    email: 'seller@zerovault.io',
+    role: 'BUYER',
+  };
+
   const mockListing = {
     id: 'listing-123',
-    seller_id: 'user-123',
+    seller_id: 'seller-456',
     title: 'Critical RCE Vulnerability',
     category: 'RCE',
     severity: 'CRITICAL',
@@ -55,6 +67,7 @@ jest.mock('@prisma/client', () => {
       user: {
         findUnique: jest.fn().mockImplementation(({ where }) => {
           if (where.id === 'user-123') return Promise.resolve(mockUser);
+          if (where.id === 'seller-456') return Promise.resolve(mockSeller);
           return Promise.resolve(null);
         }),
       },
@@ -159,6 +172,16 @@ describe('Module 4: API Gateway & Web3 Bridge Tests', () => {
       expect(res.body.error).toBe('Vulnerability listing not found');
     });
 
+    it('should return 403 when seller attempts to fund own listing', async () => {
+      const res = await request(app)
+        .post('/api/escrow/fund')
+        .set('Cookie', [`session=${sellerToken}`])
+        .send({ listing_id: 'listing-123', tx_hash: '0xfund123' });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe('Cannot fund your own listing');
+    });
+
     it('should update escrow state and return 200 on valid funding request', async () => {
       const res = await request(app)
         .post('/api/escrow/fund')
@@ -185,7 +208,7 @@ describe('Module 4: API Gateway & Web3 Bridge Tests', () => {
     it('should return 400 when decryptionKey or merkleRoot is missing (Zod validation)', async () => {
       const res = await request(app)
         .post('/api/escrow/reveal')
-        .set('Cookie', [`session=${validToken}`])
+        .set('Cookie', [`session=${sellerToken}`])
         .send({ decryptionKey: '' });
 
       expect(res.status).toBe(400);
@@ -195,7 +218,7 @@ describe('Module 4: API Gateway & Web3 Bridge Tests', () => {
     it('should update escrow and listing state to SETTLED on valid reveal request', async () => {
       const res = await request(app)
         .post('/api/escrow/reveal')
-        .set('Cookie', [`session=${validToken}`])
+        .set('Cookie', [`session=${sellerToken}`])
         .send({
           decryptionKey: 'aes_secret_key_999',
           merkleRoot: '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
