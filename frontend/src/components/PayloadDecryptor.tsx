@@ -144,9 +144,10 @@ export const PayloadDecryptor: React.FC<PayloadDecryptorProps> = ({
     try {
       let resolvedAesKey = decryptionKey.trim();
 
-      // If the key is an ECIES ciphertext payload (>= 65 bytes / 130 hex characters)
+      // If the key is an ECIES ciphertext payload (>= 61 bytes / 122 hex characters)
       // and user enters their buyer private key (or if key needs ECIES unwrapping):
-      if (resolvedAesKey.startsWith('0x') && resolvedAesKey.length >= 130) {
+      const cleanKey = resolvedAesKey.startsWith('0x') ? resolvedAesKey.slice(2) : resolvedAesKey;
+      if (cleanKey.length >= 122) {
         // Attempt ECIES unwrapping if buyer private key is provided via input or window
         const potentialPrivKey = buyerPrivateKey.trim() || (window as any).__buyerPrivateKey || '';
         if (potentialPrivKey) {
@@ -297,7 +298,7 @@ export const PayloadDecryptor: React.FC<PayloadDecryptorProps> = ({
               />
             </div>
 
-            {decryptionKey.startsWith('0x') && decryptionKey.length >= 130 && (
+            {(decryptionKey.trim().replace(/^0x/i, '').length >= 122) && (
               <div className="sm:col-span-2 space-y-1 p-2.5 rounded border border-[#2563EB]/40 bg-[#10192A]">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-[#60A5FA] font-medium">

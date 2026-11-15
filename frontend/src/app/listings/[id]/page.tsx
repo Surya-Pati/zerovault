@@ -115,8 +115,23 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
               const nextDecryptionKey = l.escrow?.decryption_key || prev.decryption_key;
               const nextClaims = l.claims && l.claims.length > 0 ? l.claims : prev.claims;
               const nextStatus = l.status || prev.status;
-              if (nextDecryptionKey !== prev.decryption_key || nextClaims !== prev.claims || nextStatus !== prev.status) {
-                return { ...prev, decryption_key: nextDecryptionKey, claims: nextClaims, status: nextStatus };
+              const nextVendorAddress = l.vendor?.wallet_address || l.vendor_address || prev.vendor_address;
+              const nextVendorProfile = l.vendor?.profile_name || prev.vendor_profile;
+              if (
+                nextDecryptionKey !== prev.decryption_key ||
+                nextClaims !== prev.claims ||
+                nextStatus !== prev.status ||
+                nextVendorAddress !== prev.vendor_address ||
+                nextVendorProfile !== prev.vendor_profile
+              ) {
+                return {
+                  ...prev,
+                  decryption_key: nextDecryptionKey,
+                  claims: nextClaims,
+                  status: nextStatus,
+                  vendor_address: nextVendorAddress,
+                  vendor_profile: nextVendorProfile,
+                };
               }
               return prev;
             });
@@ -301,9 +316,9 @@ export default function ListingDetailPage({ params }: { params: { id: string } }
             </h1>
 
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-[#848B98] pt-1">
-              <span>Seller: {listing.seller_profile ? `@${listing.seller_profile}` : `${listing.seller_address.slice(0, 6)}...${listing.seller_address.slice(-4)}`}</span>
+              <span>Seller: {listing.seller_profile ? `@${listing.seller_profile}` : (listing.seller_address && listing.seller_address !== "0x...") ? `${listing.seller_address.slice(0, 6)}...${listing.seller_address.slice(-4)}` : "Anonymous"}</span>
               <span>•</span>
-              <span>Target: {listing.vendor_profile ? `@${listing.vendor_profile}` : listing.vendor_address ? `${listing.vendor_address.slice(0, 6)}...` : "Open"}</span>
+              <span>Target: {listing.vendor_profile ? `@${listing.vendor_profile}` : (listing.vendor_address && listing.vendor_address !== "0x...") ? `${listing.vendor_address.slice(0, 6)}...${listing.vendor_address.slice(-4)}` : "Open"}</span>
               <span>•</span>
               <button
                 onClick={() => {

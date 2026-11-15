@@ -361,7 +361,7 @@ export default function ListingsBrowsePage() {
                       </span>
                       <span>•</span>
                       <span>
-                        Seller: {item.seller?.profile_name ? `@${item.seller.profile_name}` : `${item.seller_address?.slice(0, 6)}...${item.seller_address?.slice(-4)}`}
+                        Seller: {item.seller?.profile_name ? `@${item.seller.profile_name}` : item.seller_address ? `${item.seller_address.slice(0, 6)}...${item.seller_address.slice(-4)}` : "Anonymous"}
                       </span>
                       <span>•</span>
                       <span>

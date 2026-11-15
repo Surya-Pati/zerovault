@@ -341,6 +341,7 @@ export const fundEscrow = async (req: Request, res: Response) => {
     let paidAmount = BigInt(0);
     let matchedRoot = false;
     let capturedBuyerPublicKey: string | null = null;
+    let capturedBuyerAddress: string | null = null;
     for (const log of receipt.logs) {
       try {
         let parsed: any = null;
@@ -354,6 +355,9 @@ export const fundEscrow = async (req: Request, res: Response) => {
         }
         if (parsed && parsed.name === 'BountyLocked' && parsed.args.merkleRoot.toLowerCase() === listing.merkle_root.toLowerCase()) {
           paidAmount = parsed.args.amount;
+          if (parsed.args.buyer && typeof parsed.args.buyer === 'string' && parsed.args.buyer !== '0x0000000000000000000000000000000000000000') {
+            capturedBuyerAddress = parsed.args.buyer;
+          }
           if (parsed.args.buyerPublicKey && typeof parsed.args.buyerPublicKey === 'string' && parsed.args.buyerPublicKey !== '0x') {
             capturedBuyerPublicKey = parsed.args.buyerPublicKey;
           }
@@ -389,9 +393,14 @@ export const fundEscrow = async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Cannot fund your own listing' });
     }
 
+    const buyerWallet = user.wallet_address || (capturedBuyerAddress ? capturedBuyerAddress : null);
+
     const updatedListing = await prisma.vulnerabilityListing.update({
       where: { id },
-      data: { status: ListingStatus.BOUNTY_LOCKED },
+      data: {
+        status: ListingStatus.BOUNTY_LOCKED,
+        ...(!listing.vendor_address && buyerWallet ? { vendor_address: buyerWallet.toLowerCase() } : {}),
+      },
     });
 
     const escrow = await prisma.escrowTransaction.upsert({
@@ -707,7 +716,11 @@ export const downloadPayload = async (req: Request, res: Response) => {
   try {
     const listing = await prisma.vulnerabilityListing.findUnique({
       where: { id: listingId },
-      include: { escrow: true },
+      include: {
+        escrow: {
+          include: { buyer: true },
+        },
+      },
     });
 
     if (!listing) {
@@ -723,8 +736,10 @@ export const downloadPayload = async (req: Request, res: Response) => {
 
     // Authorization: purchasing buyer, original seller, or system admin
     const isSeller = listing.seller_id === user.id;
-    const isPurchasingBuyer = (listing.escrow && listing.escrow.buyer_id === user.id) || 
-                              Boolean(listing.vendor_address && user.wallet_address && listing.vendor_address.toLowerCase() === user.wallet_address.toLowerCase());
+    const isPurchasingBuyer =
+      (listing.escrow && listing.escrow.buyer_id === user.id) ||
+      Boolean(listing.escrow?.buyer?.wallet_address && user.wallet_address && listing.escrow.buyer.wallet_address.toLowerCase() === user.wallet_address.toLowerCase()) ||
+      Boolean(listing.vendor_address && user.wallet_address && listing.vendor_address.toLowerCase() === user.wallet_address.toLowerCase());
     const isAdmin = user.role === 'ADMIN';
 
     if (!isPurchasingBuyer && !isSeller && !isAdmin) {

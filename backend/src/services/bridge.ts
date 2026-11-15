@@ -102,9 +102,9 @@ export async function handleContractEvent(
 
     // Resolve buyer_id when BountyLocked occurs or when escrow record needs to be created
     let resolvedBuyerId = listing.escrow?.buyer_id;
+    const targetBuyerAddress = extraData?.buyerAddress || extraData?.buyer || listing.vendor_address;
 
     if (!resolvedBuyerId || (eventName === 'BountyLocked' && (extraData?.buyerAddress || extraData?.buyer))) {
-      const targetBuyerAddress = extraData?.buyerAddress || extraData?.buyer || listing.vendor_address;
       if (targetBuyerAddress) {
         let buyerUser: any = null;
         if (prisma.user?.findFirst) {
@@ -123,14 +123,24 @@ export async function handleContractEvent(
         }
 
         if (!buyerUser && prisma.user?.create) {
+          const profileName = `Buyer-${targetBuyerAddress.slice(2, 6).toUpperCase()}${targetBuyerAddress.slice(-4).toUpperCase()}`;
           buyerUser = await prisma.user.create({
             data: {
               wallet_address: targetBuyerAddress.toLowerCase(),
               role: Role.BUYER,
-              profile_name: `Buyer-${targetBuyerAddress.slice(2, 8).toUpperCase()}`,
+              profile_name: profileName,
               verified_buyer: true,
             },
-          }).catch(() => null);
+          }).catch(async () => {
+            return await prisma.user.create({
+              data: {
+                wallet_address: targetBuyerAddress.toLowerCase(),
+                role: Role.BUYER,
+                profile_name: `${profileName}-${Math.floor(1000 + Math.random() * 9000)}`,
+                verified_buyer: true,
+              },
+            }).catch(() => null);
+          });
         }
         resolvedBuyerId = buyerUser?.id;
       } else {
@@ -169,6 +179,9 @@ export async function handleContractEvent(
       data: {
         status,
         ...(extraData?.ipfsHash ? { ipfs_hash: extraData.ipfsHash } : {}),
+        ...(eventName === 'BountyLocked' && !listing.vendor_address && targetBuyerAddress
+          ? { vendor_address: targetBuyerAddress.toLowerCase() }
+          : {}),
       },
     });
 

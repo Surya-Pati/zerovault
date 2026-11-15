@@ -96,6 +96,7 @@ export const fundEscrow = async (req: Request, res: Response) => {
 
     // In live environments, verify transaction receipt and event logs on-chain
     let capturedBuyerPublicKey: string | null = null;
+    let capturedBuyerAddress: string | null = null;
     if (txHash && process.env.NODE_ENV !== 'test' && !process.env.SKIP_ONCHAIN_VERIFY) {
       const rpcUrl = process.env.RPC_URL || 'http://127.0.0.1:8545';
       const provider = new JsonRpcProvider(rpcUrl);
@@ -124,6 +125,9 @@ export const fundEscrow = async (req: Request, res: Response) => {
         }
         if (parsed && parsed.name === 'BountyLocked' && parsed.args.merkleRoot.toLowerCase() === listing.merkle_root.toLowerCase()) {
           paidAmount = parsed.args.amount;
+          if (parsed.args.buyer && typeof parsed.args.buyer === 'string' && parsed.args.buyer !== '0x0000000000000000000000000000000000000000') {
+            capturedBuyerAddress = parsed.args.buyer;
+          }
           if (parsed.args.buyerPublicKey && typeof parsed.args.buyerPublicKey === 'string' && parsed.args.buyerPublicKey !== '0x') {
             capturedBuyerPublicKey = parsed.args.buyerPublicKey;
           }
@@ -163,10 +167,15 @@ export const fundEscrow = async (req: Request, res: Response) => {
       },
     });
 
+    const buyerWallet = user.wallet_address || (capturedBuyerAddress ? capturedBuyerAddress : null);
+
     // Update VulnerabilityListing status
     const updatedListing = await prisma.vulnerabilityListing.update({
       where: { id: listingId },
-      data: { status: ListingStatus.BOUNTY_LOCKED },
+      data: {
+        status: ListingStatus.BOUNTY_LOCKED,
+        ...(!listing.vendor_address && buyerWallet ? { vendor_address: buyerWallet.toLowerCase() } : {}),
+      },
     });
 
     return res.json({
