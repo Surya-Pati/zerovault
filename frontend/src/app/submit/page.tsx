@@ -23,8 +23,7 @@ import {
 } from "lucide-react";
 import { parseEther, keccak256, toUtf8Bytes } from "ethers";
 import { fetchApi } from "@/lib/api";
-import { createMerkleTree, getInclusionProof } from "@zerovault/shared/dist/merkle";
-import { encryptPayload } from "@zerovault/shared/dist/crypto";
+import { createMerkleTree, getInclusionProof, encryptPayload } from "@/lib/crypto";
 import { computeKeyHash } from "@/lib/contracts";
 import { useAuth } from "@/providers/AuthProvider";
 

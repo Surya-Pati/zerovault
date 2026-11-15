@@ -211,7 +211,7 @@ export async function revealAndClaimOnChain(
 
   const formattedRoot = merkleRoot.startsWith('0x') ? merkleRoot : `0x${merkleRoot}`;
   const normalizedKey = normalizeHexKey(decryptionKey);
-  const keyBytes = normalizedKey.startsWith('0x') ? normalizedKey : `0x${normalizedKey}`;
+  const keyBytes = `0x${normalizedKey}`;
   const formattedEncryptedKey = encryptedKeyForBuyer.startsWith('0x') ? encryptedKeyForBuyer : `0x${encryptedKeyForBuyer}`;
   const tx = await contract.revealAndClaim(formattedRoot, keyBytes, formattedEncryptedKey);
   const receipt = await tx.wait();
@@ -247,7 +247,7 @@ export function normalizeHexKey(key: string): string {
 
 export function computeKeyHash(key: string): string {
   const cleanKey = normalizeHexKey(key);
-  const hex = cleanKey.startsWith('0x') ? cleanKey : `0x${cleanKey}`;
+  const hex = `0x${cleanKey}`;
   if (isHexString(hex, 32)) {
     return keccak256(getBytes(hex)).toLowerCase();
   }

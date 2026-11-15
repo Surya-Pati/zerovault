@@ -5,6 +5,8 @@ import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
 import { keccak256, toUtf8Bytes, JsonRpcProvider, isHexString, getBytes, Interface } from 'ethers';
+import jwt from 'jsonwebtoken';
+import { JWT_SECRET } from '../auth/auth.middleware';
 
 const prisma = new PrismaClient();
 const PUBLIC_STORAGE_DIR = path.join(__dirname, '../../storage/public');
@@ -23,6 +25,9 @@ const settlementIfaceV1 = new Interface([
 ]);
 const bountyReclaimedIface = new Interface([
   'event BountyReclaimed(bytes32 indexed merkleRoot)'
+]);
+const vaultExpiredIface = new Interface([
+  'event VaultExpired(bytes32 indexed merkleRoot)'
 ]);
 
 // ─── Zod Validation Schemas ─────────────────────────────────────────
@@ -191,9 +196,6 @@ export const getListings = async (_req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to retrieve listings' });
   }
 };
-
-import jwt from 'jsonwebtoken';
-import { JWT_SECRET } from '../auth/auth.middleware';
 
 // ─── Get Listing By ID ──────────────────────────────────────────────
 export const getListingById = async (req: Request, res: Response) => {
@@ -467,8 +469,7 @@ export const expireEscrow = async (req: Request, res: Response) => {
     if (!contractAddr) {
       return res.status(500).json({ error: 'Server misconfiguration: ZEROVAULT_CONTRACT_ADDRESS not set' });
     }
-    const ethers = await import('ethers');
-    const providerInstance = new ethers.JsonRpcProvider(rpcUrl);
+    const providerInstance = new JsonRpcProvider(rpcUrl);
     
     let receipt = null;
     for (let i = 0; i < 5; i++) {
@@ -487,14 +488,10 @@ export const expireEscrow = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Transaction did not emit any events.' });
     }
 
-    const ifaceInstance = new ethers.Interface([
-      'event VaultExpired(bytes32 indexed merkleRoot)'
-    ]);
-    
     let matchedRoot = false;
     for (const log of receipt.logs) {
       try {
-        const parsed = ifaceInstance.parseLog(log);
+        const parsed = vaultExpiredIface.parseLog(log);
         if (parsed && parsed.name === 'VaultExpired' && parsed.args.merkleRoot.toLowerCase() === listing.merkle_root.toLowerCase()) {
           matchedRoot = true;
           break;
