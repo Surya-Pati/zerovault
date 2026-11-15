@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { PrismaClient, ListingStatus } from '@prisma/client';
 import { z } from 'zod';
 import { keccak256, toUtf8Bytes, isHexString, getBytes, JsonRpcProvider, Interface } from 'ethers';
+import { migratePayload } from '../services/payloadWorker';
 
 const prisma = new PrismaClient();
 
@@ -299,6 +300,11 @@ export const revealEscrow = async (req: Request, res: Response) => {
       data: { status: ListingStatus.SETTLED },
     });
 
+    // Trigger immediate zero-latency payload migration to private storage
+    migratePayload(listing.id).catch((err) =>
+      console.error('[EscrowController] Immediate payload migration error:', err)
+    );
+
     return res.json({
       message: 'Decryption key revealed and escrow settled successfully',
       decryptionKey,
@@ -337,12 +343,13 @@ export const getEscrowStatus = async (req: Request, res: Response) => {
           select: {
             id: true,
             wallet_address: true,
-            email: true,
             role: true,
           },
         },
       },
     });
+
+    const user = (req as any).user;
 
     if (!escrow) {
       // Check if listing exists without escrow record yet
@@ -353,24 +360,95 @@ export const getEscrowStatus = async (req: Request, res: Response) => {
       });
 
       if (listing) {
+        const canViewAll = user && (user.role === 'ADMIN' || listing.seller_id === user.id);
+        const sanitizedListingClaims = canViewAll
+          ? listing.claims
+          : Array.isArray(listing.claims)
+          ? (listing.claims as any[])
+              .filter((c: any) => c && (
+                c.revealed === true ||
+                c.is_revealed === true ||
+                c.public === true ||
+                (Array.isArray(c.proof) && c.proof.length > 0)
+              ))
+              .map((c: any) => ({
+                key: c.key,
+                value: c.value,
+                revealed: true,
+                ...(c.proof ? { proof: c.proof } : {}),
+                ...(c.salt ? { salt: c.salt } : {}),
+              }))
+          : [];
+
+        const sanitizedListing = {
+          ...listing,
+          claims: sanitizedListingClaims,
+        };
+
         return res.json({
           escrow: null,
           status: listing.status,
-          listing,
+          listing: sanitizedListing,
         });
       }
 
       return res.status(404).json({ error: 'Escrow transaction not found' });
     }
 
+    const isSeller = user && escrow.listing.seller_id === user.id;
+    const isAdmin = user && user.role === 'ADMIN';
+    const isBuyer = Boolean(
+      user && (
+        escrow.buyer_id === user.id ||
+        (user.wallet_address && escrow.buyer?.wallet_address && user.wallet_address.toLowerCase() === escrow.buyer.wallet_address.toLowerCase()) ||
+        (user.wallet_address && escrow.listing.vendor_address && user.wallet_address.toLowerCase() === escrow.listing.vendor_address.toLowerCase())
+      )
+    );
+    const isSettled = escrow.status === ListingStatus.SETTLED || escrow.listing.status === ListingStatus.SETTLED;
+    const isSettledBuyer = isBuyer && isSettled;
+    const canViewAllClaims = isSeller || isAdmin || isSettledBuyer;
+    const canViewDecryptionKey = isSeller || isAdmin || isSettledBuyer;
+
+    // Sanitize unauthorized access to decryption keys and hidden claims (enforce immutability)
+    let sanitizedClaims: any = [];
+    if (canViewAllClaims) {
+      sanitizedClaims = escrow.listing.claims;
+    } else if (Array.isArray(escrow.listing.claims)) {
+      sanitizedClaims = (escrow.listing.claims as any[])
+        .filter((c: any) => c && (
+          c.revealed === true ||
+          c.is_revealed === true ||
+          c.public === true ||
+          (Array.isArray(c.proof) && c.proof.length > 0)
+        ))
+        .map((c: any) => ({
+          key: c.key,
+          value: c.value,
+          revealed: true,
+          ...(c.proof ? { proof: c.proof } : {}),
+          ...(c.salt ? { salt: c.salt } : {}),
+        }));
+    }
+
+    const sanitizedListing = {
+      ...escrow.listing,
+      claims: sanitizedClaims,
+    };
+
+    const sanitizedEscrow = {
+      ...escrow,
+      decryption_key: canViewDecryptionKey ? escrow.decryption_key : null,
+      listing: sanitizedListing,
+    };
+
     return res.json({
-      escrow,
+      escrow: sanitizedEscrow,
       status: escrow.status,
       tx_hash_fund: escrow.tx_hash_fund,
       tx_hash_settle: escrow.tx_hash_settle,
       contract_address: escrow.contract_address,
       bounty_locked_at: escrow.bounty_locked_at,
-      listing: escrow.listing,
+      listing: sanitizedListing,
       buyer: escrow.buyer,
     });
   } catch (error) {

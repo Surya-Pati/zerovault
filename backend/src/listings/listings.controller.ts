@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { PrismaClient, ListingStatus } from '@prisma/client';
 import { MerkleService } from '../services/merkle';
+import { migratePayload } from '../services/payloadWorker';
 import { encryptPayload } from '@zerovault/shared';
 import { z } from 'zod';
 import fs from 'fs';
@@ -157,7 +158,32 @@ export const createListing = async (req: Request, res: Response) => {
 export const getListings = async (_req: Request, res: Response) => {
   try {
     const listings = await prisma.vulnerabilityListing.findMany({
-      include: { escrow: true, seller: true },
+      select: {
+        id: true,
+        title: true,
+        category: true,
+        severity: true,
+        merkle_root: true,
+        price_wei: true,
+        status: true,
+        vendor_address: true,
+        created_at: true,
+        key_hash: true,
+        seller: {
+          select: {
+            profile_name: true,
+            wallet_address: true,
+          },
+        },
+        escrow: {
+          select: {
+            status: true,
+            contract_address: true,
+            bounty_locked_at: true,
+          },
+        },
+      },
+      orderBy: { created_at: 'desc' },
     });
     res.json({ listings });
   } catch (error: any) {
@@ -693,6 +719,11 @@ export const settleEscrow = async (req: Request, res: Response) => {
         },
       });
     }
+
+    // Trigger immediate zero-latency payload migration to private storage
+    migratePayload(id).catch((err) =>
+      console.error('[Listings] Immediate payload migration error:', err)
+    );
 
     res.json({ success: true, listing: updatedListing, decryptionKey });
   } catch (error: any) {

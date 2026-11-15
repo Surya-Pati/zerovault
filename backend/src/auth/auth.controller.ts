@@ -106,13 +106,46 @@ export const verifySiwe = async (req: Request, res: Response) => {
         if (!role) {
           return res.status(400).json({ error: 'Role is required for new registration (RESEARCHER or BUYER)' });
         }
-        user = await prisma.user.create({
-          data: {
-            wallet_address,
-            role,
-            profile_name: `${role === 'BUYER' ? 'Buyer' : 'Researcher'}-${wallet_address.slice(2, 6).toUpperCase()}${wallet_address.slice(-4).toUpperCase()}`
+        const baseProfileName = `${role === 'BUYER' ? 'Buyer' : 'Researcher'}-${wallet_address.slice(2, 6).toUpperCase()}${wallet_address.slice(-4).toUpperCase()}`;
+        try {
+          user = await prisma.user.create({
+            data: {
+              wallet_address,
+              role,
+              profile_name: baseProfileName,
+            },
+          });
+        } catch (createErr: any) {
+          if (createErr?.code === 'P2002') {
+            const target = Array.isArray(createErr?.meta?.target)
+              ? createErr.meta.target
+              : typeof createErr?.meta?.target === 'string'
+              ? [createErr.meta.target]
+              : [];
+            if (target.some((t: string) => t.includes('wallet_address'))) {
+              const existing = await prisma.user.findFirst({
+                where: { wallet_address: { equals: wallet_address, mode: 'insensitive' } },
+              });
+              if (existing) {
+                user = existing;
+              } else {
+                throw createErr;
+              }
+            } else {
+              // Unique constraint on profile_name: retry with random suffix
+              const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+              user = await prisma.user.create({
+                data: {
+                  wallet_address,
+                  role,
+                  profile_name: `${baseProfileName}-${randomSuffix}`,
+                },
+              });
+            }
+          } else {
+            throw createErr;
           }
-        });
+        }
       }
 
       const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
