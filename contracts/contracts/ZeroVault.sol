@@ -319,8 +319,9 @@ contract ZeroVault is ReentrancyGuard, AccessControl, Pausable {
     /**
      * @notice Withdraws available funds from the internal refunds/payout ledger.
      * @dev Follows CEI pattern and pull-over-push design to eliminate push-payment DoS vectors.
+     *      Intentionally does NOT enforce whenNotPaused so users can always withdraw their settled/refunded funds.
      */
-    function withdrawRefund() external nonReentrant whenNotPaused {
+    function withdrawRefund() external nonReentrant {
         uint256 amount = refunds[msg.sender];
         if (amount == 0) {
             revert InvalidAmount();

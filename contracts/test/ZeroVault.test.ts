@@ -539,5 +539,29 @@ describe("ZeroVault v2", function () {
           .commitVulnerability(merkleRoot, keyHash, vendor.address, askingPrice, ipfsHash)
       ).to.be.revertedWithCustomError(zeroVault, "EnforcedPause");
     });
+
+    it("should allow users to withdraw refunds even when contract is paused", async function () {
+      await zeroVault
+        .connect(seller)
+        .commitVulnerability(merkleRoot, keyHash, vendor.address, askingPrice, ipfsHash);
+      await zeroVault
+        .connect(vendor)
+        .lockBounty(merkleRoot, validBuyerCompressedPubKey, { value: bountyAmount });
+      await zeroVault
+        .connect(seller)
+        .revealAndClaim(merkleRoot, decryptionKeyBytes, validEncryptedKey);
+
+      expect(await zeroVault.refunds(seller.address)).to.equal(bountyAmount);
+
+      // Pause contract
+      await zeroVault.connect(owner).pause();
+      expect(await zeroVault.paused()).to.equal(true);
+
+      // Seller can still withdraw their settled funds
+      await expect(zeroVault.connect(seller).withdrawRefund())
+        .to.emit(zeroVault, "RefundWithdrawn")
+        .withArgs(seller.address, bountyAmount);
+      expect(await zeroVault.refunds(seller.address)).to.equal(0);
+    });
   });
 });

@@ -106,7 +106,7 @@ export const fundEscrow = async (req: Request, res: Response) => {
     // In live environments, verify transaction receipt and event logs on-chain
     let capturedBuyerPublicKey: string | null = null;
     let capturedBuyerAddress: string | null = null;
-    if (txHash && process.env.NODE_ENV !== 'test' && !process.env.SKIP_ONCHAIN_VERIFY) {
+    if (txHash && process.env.NODE_ENV !== 'test') {
       const rpcUrl = process.env.RPC_URL || 'http://127.0.0.1:8545';
       const provider = new JsonRpcProvider(rpcUrl);
       const receipt = await provider.getTransactionReceipt(txHash).catch(() => null);
@@ -233,7 +233,7 @@ export const revealEscrow = async (req: Request, res: Response) => {
     }
 
     // In live environments, verify transaction receipt on-chain if settlement tx provided
-    if (txHashSettle && process.env.NODE_ENV !== 'test' && !process.env.SKIP_ONCHAIN_VERIFY) {
+    if (txHashSettle && process.env.NODE_ENV !== 'test') {
       const rpcUrl = process.env.RPC_URL || 'http://127.0.0.1:8545';
       const provider = new JsonRpcProvider(rpcUrl);
       const receipt = await provider.getTransactionReceipt(txHashSettle).catch(() => null);

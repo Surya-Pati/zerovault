@@ -57,6 +57,10 @@ jest.mock('@prisma/client', () => {
           };
           return Promise.resolve(inMemoryListing);
         }),
+        findMany: jest.fn().mockImplementation(() => {
+          return Promise.resolve(inMemoryListing ? [{ ...inMemoryListing, escrow: inMemoryEscrow }] : []);
+        }),
+        count: jest.fn().mockImplementation(() => Promise.resolve(inMemoryListing ? 1 : 0)),
         findUnique: jest.fn().mockImplementation(({ where }) => {
           if (inMemoryListing && inMemoryListing.id === where.id) {
             return Promise.resolve({
@@ -234,6 +238,16 @@ describe('ZeroVault Backend Integration Tests', () => {
     expect(res.body.listing.merkle_root).toBe(merkleRoot);
 
     listingId = res.body.listing.id;
+  });
+
+  it('GET /api/listings should return listings with pagination metadata', async () => {
+    const res = await request(app).get('/api/listings?page=1&limit=10');
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.listings)).toBe(true);
+    expect(res.body.pagination).toBeDefined();
+    expect(res.body.pagination.page).toBe(1);
+    expect(res.body.pagination.limit).toBe(10);
+    expect(res.body.pagination.total).toBeGreaterThanOrEqual(1);
   });
 
   it('GET /api/listings/:id should return listing details', async () => {

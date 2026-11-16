@@ -19,7 +19,7 @@ const verifySiweSchema = z.object({
 const cookieConfig = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax' as const,
+  sameSite: 'strict' as const,
   maxAge: 24 * 60 * 60 * 1000, // 24 hours
   path: '/',
 };
@@ -39,8 +39,9 @@ export const getNonce = (req: Request, res: Response) => {
   res.cookie('siwe-nonce', nonce, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    sameSite: 'strict',
     maxAge: 5 * 60 * 1000, // 5 minutes
+    path: '/',
   });
   res.setHeader('Content-Type', 'text/plain');
   res.send(nonce);

@@ -166,37 +166,54 @@ export const createListing = async (req: Request, res: Response) => {
 };
 
 // ─── Get All Listings ───────────────────────────────────────────────
-export const getListings = async (_req: Request, res: Response) => {
+export const getListings = async (req: Request, res: Response) => {
   try {
-    const listings = await prisma.vulnerabilityListing.findMany({
-      select: {
-        id: true,
-        title: true,
-        category: true,
-        severity: true,
-        merkle_root: true,
-        price_wei: true,
-        status: true,
-        vendor_address: true,
-        created_at: true,
-        key_hash: true,
-        seller: {
-          select: {
-            profile_name: true,
-            wallet_address: true,
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 50));
+    const skip = (page - 1) * limit;
+
+    const [listings, total] = await Promise.all([
+      prisma.vulnerabilityListing.findMany({
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          title: true,
+          category: true,
+          severity: true,
+          merkle_root: true,
+          price_wei: true,
+          status: true,
+          vendor_address: true,
+          created_at: true,
+          key_hash: true,
+          seller: {
+            select: {
+              profile_name: true,
+              wallet_address: true,
+            },
+          },
+          escrow: {
+            select: {
+              status: true,
+              contract_address: true,
+              bounty_locked_at: true,
+            },
           },
         },
-        escrow: {
-          select: {
-            status: true,
-            contract_address: true,
-            bounty_locked_at: true,
-          },
-        },
+        orderBy: { created_at: 'desc' },
+      }),
+      prisma.vulnerabilityListing.count().catch(() => 0),
+    ]);
+
+    res.json({
+      listings,
+      pagination: {
+        page,
+        limit,
+        total,
       },
-      orderBy: { created_at: 'desc' },
     });
-    res.json({ listings });
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to retrieve listings' });
   }

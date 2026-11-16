@@ -27,7 +27,7 @@ export const {
   getSessionIdentifier: (req: Request) => req.cookies?.session || 'anonymous',
   cookieName: 'x-csrf-token',
   cookieOptions: {
-    sameSite: 'lax',
+    sameSite: 'strict',
     path: '/',
     secure: process.env.NODE_ENV === 'production',
   },
